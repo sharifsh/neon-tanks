@@ -5,7 +5,7 @@ let musicOn = true, lastPlay = {}, pack = 'neon';
 const settings = { sfx: 0.5, music: 0.22 };
 const SFX_GAIN = { neon: 1, modern: 0.75, miniature: 1.3, pixel: 1.8, winter: 0.8, desert: 0.9, blueprint: 1.5 };
 const sfxLevel = () => settings.sfx * (SFX_GAIN[pack] || 1);
-const REVERB = { neon: [0.12, 0.32], modern: [0.22, 0.25], miniature: [0.1, 0.15], pixel: [0, 0.05], winter: [0.45, 0.6], desert: [0.18, 0.3], blueprint: [0.15, 0.35] };
+const REVERB = { neon: [0.12, 0.32], modern: [0.22, 0.35], miniature: [0.1, 0.2], pixel: [0, 0.07], winter: [0.45, 0.6], desert: [0.18, 0.36], blueprint: [0.15, 0.35] };
 
 export function initAudio() {
   if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
@@ -53,6 +53,7 @@ function tone(type, f0, f1, dur, vol = 0.3, delay = 0, o = {}) {
   const osc = ctx.createOscillator(), g = ctx.createGain();
   osc.type = type; osc.frequency.setValueAtTime(f0, t); if (f1) osc.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + (o.glide || dur));
   if (o.detune) osc.detune.value = o.detune;
+  if (o.vib) { const l = ctx.createOscillator(), lg = ctx.createGain(); l.frequency.value = o.vib[0]; lg.gain.value = o.vib[1]; l.connect(lg); lg.connect(osc.detune); l.start(t + (o.vibDelay || 0)); l.stop(t + dur + 0.05); } // vibrato [rate Hz, depth cents]
   const a = o.attack || 0.004;
   g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   let node = osc;
@@ -316,6 +317,108 @@ const M = { at: 0 }; // shared options object reused per note
 const mo = (t, extra) => ({ at: t, dest: musicGain, ...extra });
 const seq = str => str.trim().split(/\s+/).map(x => x === '.' ? 0 : +x);
 
+// ---------- shared arrangement helpers ----------
+// Every soundtrack runs a 32-bar loop: intro (0-7), A (8-15), B (16-23), breakdown (24-27), build (28-31).
+const section = bar => bar < 8 ? 'intro' : bar < 16 ? 'a' : bar < 24 ? 'b' : bar < 28 ? 'break' : 'build';
+// Melody tables are lists of bars; each bar is a list of [step, midi note, length in steps].
+function melody(table, bar, i, play) { const m = table[((bar % table.length) + table.length) % table.length]; if (m) for (const [st, n, len] of m) if (st === i) play(n, len); }
+
+// Modern (D minor)
+const MOD_CH = { Dm: { r: 38, v: [57, 62, 65] }, Bb: { r: 34, v: [58, 62, 65] }, F: { r: 41, v: [57, 60, 65] }, C: { r: 36, v: [55, 60, 64] }, Gm: { r: 43, v: [55, 58, 62] }, A: { r: 33, v: [57, 61, 64] } };
+const MOD_PROG = ['Dm', 'Bb', 'F', 'C', 'Dm', 'Bb', 'F', 'C', 'Dm', 'Bb', 'F', 'C', 'Dm', 'Bb', 'Gm', 'A',
+  'Gm', 'Dm', 'Bb', 'A', 'Gm', 'Dm', 'Bb', 'A', 'Dm', 'Bb', 'Dm', 'A', 'Gm', 'Bb', 'A', 'A'];
+const MOD_MEL_A = [
+  [[0, 69, 6], [6, 67, 2], [8, 65, 8]], [[0, 65, 4], [4, 67, 4], [8, 70, 8]], [[0, 72, 6], [6, 70, 2], [8, 69, 8]], [[0, 67, 8], [8, 64, 8]],
+  [[0, 69, 6], [6, 70, 2], [8, 72, 8]], [[0, 74, 6], [6, 72, 2], [8, 70, 8]], [[0, 70, 4], [4, 69, 4], [8, 67, 8]], [[0, 69, 8], [8, 73, 8]],
+];
+const MOD_MEL_B = [
+  [[0, 74, 8], [8, 72, 4], [12, 70, 4]], [[0, 69, 8], [8, 65, 8]], [[0, 70, 6], [6, 69, 2], [8, 67, 8]], [[0, 64, 8], [8, 61, 8]],
+  [[0, 74, 6], [6, 77, 2], [8, 79, 8]], [[0, 77, 6], [6, 76, 2], [8, 74, 8]], [[0, 74, 4], [4, 72, 4], [8, 70, 8]], [[0, 69, 16]],
+];
+// Miniature (C major)
+const MINI_CH = { C: { r: 48, v: [60, 64, 67] }, F: { r: 41, v: [60, 65, 69] }, G: { r: 43, v: [59, 62, 67] }, Am: { r: 45, v: [60, 64, 69] }, Dm: { r: 50, v: [62, 65, 69] }, Em: { r: 40, v: [59, 64, 67] } };
+const MINI_PROG = ['C', 'F', 'G', 'C', 'C', 'F', 'G', 'C', 'C', 'F', 'G', 'C', 'C', 'Am', 'Dm', 'G',
+  'F', 'C', 'Dm', 'G', 'Em', 'Am', 'Dm', 'G', 'Am', 'F', 'C', 'G', 'F', 'G', 'F', 'G'];
+const MINI_MEL_A = [
+  [[0, 72, 2], [2, 76, 2], [4, 79, 4], [8, 76, 2], [10, 77, 2], [12, 76, 2], [14, 74, 2]],
+  [[0, 72, 4], [4, 77, 2], [6, 81, 2], [8, 79, 4], [12, 77, 4]],
+  [[0, 74, 2], [2, 79, 2], [4, 83, 4], [8, 81, 2], [10, 79, 2], [12, 77, 2], [14, 74, 2]],
+  [[0, 72, 6], [8, 67, 4], [12, 72, 4]],
+  [[0, 72, 2], [2, 76, 2], [4, 79, 4], [8, 76, 2], [10, 77, 2], [12, 76, 2], [14, 74, 2]],
+  [[0, 72, 2], [2, 76, 2], [4, 81, 4], [8, 79, 2], [10, 76, 2], [12, 72, 4]],
+  [[0, 74, 2], [2, 77, 2], [4, 81, 4], [8, 77, 2], [10, 74, 2], [12, 72, 2], [14, 71, 2]],
+  [[0, 74, 4], [4, 79, 4], [8, 77, 2], [10, 74, 2], [12, 71, 4]],
+];
+const MINI_MEL_B = [
+  [[0, 81, 4], [4, 79, 2], [6, 77, 2], [8, 76, 4], [12, 77, 4]], [[0, 79, 6], [6, 76, 2], [8, 72, 8]],
+  [[0, 77, 4], [4, 76, 2], [6, 74, 2], [8, 72, 4], [12, 74, 4]], [[0, 71, 4], [4, 74, 4], [8, 79, 8]],
+  [[0, 79, 4], [4, 76, 4], [8, 71, 8]], [[0, 76, 4], [4, 72, 4], [8, 69, 8]],
+  [[0, 74, 4], [4, 77, 4], [8, 81, 4], [12, 79, 4]], [[0, 79, 4], [4, 77, 2], [6, 76, 2], [8, 74, 8]],
+];
+// Pixel (A minor)
+const PIX_CH = { Am: { r: 45, v: [69, 72, 76] }, F: { r: 41, v: [69, 72, 77] }, C: { r: 48, v: [67, 72, 76] }, G: { r: 43, v: [67, 71, 74] }, E: { r: 40, v: [68, 71, 76] }, Em: { r: 40, v: [67, 71, 76] }, Dm: { r: 38, v: [69, 74, 77] } };
+const PIX_PROG = ['Am', 'F', 'C', 'G', 'Am', 'F', 'C', 'G', 'Am', 'F', 'C', 'G', 'Am', 'F', 'G', 'E',
+  'F', 'G', 'Em', 'Am', 'Dm', 'G', 'C', 'E', 'Am', 'F', 'Am', 'F', 'Dm', 'E', 'Am', 'E'];
+const PIX_MEL_A = [
+  [[0, 76, 3], [3, 76, 1], [4, 72, 2], [6, 76, 2], [8, 79, 4], [12, 76, 4]],
+  [[0, 77, 2], [2, 76, 2], [4, 74, 2], [6, 72, 2], [8, 74, 4], [12, 77, 4]],
+  [[0, 79, 3], [3, 79, 1], [4, 76, 2], [6, 79, 2], [8, 84, 4], [12, 79, 4]],
+  [[0, 81, 2], [2, 79, 2], [4, 77, 2], [6, 76, 2], [8, 74, 8]],
+  [[0, 76, 3], [3, 76, 1], [4, 72, 2], [6, 76, 2], [8, 79, 4], [12, 76, 4]],
+  [[0, 77, 2], [2, 81, 2], [4, 84, 4], [8, 81, 2], [10, 77, 2], [12, 74, 4]],
+  [[0, 79, 2], [2, 77, 2], [4, 76, 2], [6, 74, 2], [8, 71, 4], [12, 74, 4]],
+  [[0, 76, 4], [4, 80, 4], [8, 83, 8]],
+];
+const PIX_MEL_B = [
+  [[0, 81, 6], [6, 79, 2], [8, 77, 4], [12, 76, 4]], [[0, 74, 6], [6, 76, 2], [8, 79, 8]],
+  [[0, 79, 6], [6, 76, 2], [8, 71, 4], [12, 74, 4]], [[0, 72, 8], [8, 76, 8]],
+  [[0, 77, 6], [6, 76, 2], [8, 74, 4], [12, 77, 4]], [[0, 79, 4], [4, 83, 4], [8, 86, 8]],
+  [[0, 84, 6], [6, 83, 2], [8, 79, 8]], [[0, 80, 4], [4, 83, 4], [8, 88, 4], [12, 83, 4]],
+];
+// Winter (E minor)
+const WIN_CH = { Em: { r: 40, v: [64, 67, 71] }, C: { r: 36, v: [64, 67, 72] }, G: { r: 43, v: [62, 67, 71] }, D: { r: 38, v: [62, 66, 69] }, Am: { r: 45, v: [60, 64, 69] }, Bm: { r: 47, v: [62, 66, 71] } };
+const WIN_PROG = ['Em', 'C', 'G', 'D', 'Em', 'C', 'G', 'D', 'Em', 'C', 'G', 'D', 'Am', 'C', 'D', 'D',
+  'C', 'D', 'Bm', 'Em', 'C', 'D', 'Em', 'Em', 'Em', 'C', 'Em', 'C', 'Am', 'Bm', 'C', 'D'];
+const WIN_MEL_A = [
+  [[0, 71, 4], [4, 74, 4], [8, 76, 8]], [[0, 76, 4], [4, 74, 4], [8, 72, 8]], [[0, 74, 6], [6, 71, 2], [8, 67, 8]], [[0, 69, 8], [8, 66, 8]],
+  [[0, 72, 4], [4, 71, 4], [8, 69, 8]], [[0, 67, 4], [4, 69, 4], [8, 72, 8]], [[0, 74, 8], [8, 78, 8]], [[0, 76, 16]],
+];
+const WIN_MEL_B = [
+  [[0, 79, 8], [8, 76, 8]], [[0, 78, 8], [8, 74, 8]], [[0, 74, 4], [4, 71, 4], [8, 66, 8]], [[0, 67, 8], [8, 71, 8]],
+  [[0, 72, 4], [4, 76, 4], [8, 79, 8]], [[0, 81, 8], [8, 78, 8]], [[0, 79, 16]], [],
+];
+// Desert (D Hijaz: D Eb F# G A Bb C)
+const DES_CH = { D: { v: [62, 66, 69] }, Gm: { v: [62, 67, 70] }, Eb: { v: [63, 67, 70] }, Cm: { v: [60, 63, 67] } };
+const DES_PROG = ['D', 'D', 'D', 'D', 'D', 'D', 'Gm', 'D', 'D', 'D', 'Gm', 'D', 'D', 'Eb', 'D', 'D',
+  'Gm', 'Gm', 'D', 'D', 'Cm', 'Eb', 'D', 'D', 'Gm', 'Gm', 'D', 'D', 'Eb', 'D', 'Eb', 'D'];
+const DES_FIG = [62, 63, 66, 67, 69, 67, 66, 63];
+const DES_MEL_A = [
+  [[0, 62, 2], [2, 63, 2], [4, 66, 4], [8, 67, 2], [10, 69, 6]],
+  [[0, 70, 2], [2, 69, 2], [4, 67, 2], [6, 66, 2], [8, 67, 4], [12, 66, 2], [14, 63, 2]],
+  [[0, 62, 4], [4, 67, 4], [8, 70, 4], [12, 69, 4]],
+  [[0, 67, 2], [2, 66, 2], [4, 63, 4], [8, 62, 8]],
+  [[0, 69, 2], [2, 70, 2], [4, 72, 4], [8, 70, 2], [10, 69, 2], [12, 67, 4]],
+  [[0, 70, 4], [4, 67, 4], [8, 63, 8]],
+  [[0, 66, 2], [2, 67, 2], [4, 69, 4], [8, 67, 2], [10, 66, 2], [12, 63, 4]],
+  [[0, 62, 12]],
+];
+const DES_MEL_B = [
+  [[0, 74, 8], [8, 72, 4], [12, 70, 4]], [[0, 69, 6], [6, 70, 2], [8, 67, 8]], [[0, 66, 4], [4, 67, 4], [8, 69, 8]], [[0, 70, 4], [4, 69, 4], [8, 66, 8]],
+  [[0, 67, 8], [8, 63, 4], [12, 62, 4]], [[0, 63, 4], [4, 67, 4], [8, 70, 8]], [[0, 69, 4], [4, 67, 4], [8, 66, 4], [12, 63, 4]], [[0, 62, 16]],
+];
+// Blueprint (D minor)
+const BP_CH = { Dm: { r: 38, v: [62, 65, 69] }, Bb: { r: 34, v: [62, 65, 70] }, F: { r: 41, v: [60, 65, 69] }, C: { r: 36, v: [60, 64, 67] }, Gm: { r: 43, v: [62, 67, 70] }, A: { r: 45, v: [61, 64, 69] }, Am: { r: 45, v: [60, 64, 69] } };
+const BP_PROG = ['Dm', 'Bb', 'F', 'C', 'Dm', 'Bb', 'F', 'C', 'Dm', 'Bb', 'F', 'C', 'Dm', 'Bb', 'Gm', 'A',
+  'Bb', 'C', 'Am', 'Dm', 'Gm', 'C', 'F', 'A', 'Dm', 'Bb', 'Dm', 'Bb', 'Gm', 'A', 'Bb', 'A'];
+const BP_MEL_A = [
+  [[0, 74, 8], [8, 72, 8]], [[0, 70, 8], [8, 69, 8]], [[0, 72, 4], [4, 69, 4], [8, 65, 8]], [[0, 67, 16]],
+  [[0, 74, 4], [4, 76, 4], [8, 77, 8]], [[0, 77, 8], [8, 74, 8]], [[0, 74, 4], [4, 72, 4], [8, 70, 8]], [[0, 69, 8], [8, 73, 8]],
+];
+const BP_MEL_B = [
+  [[0, 77, 8], [8, 74, 8]], [[0, 76, 8], [8, 72, 8]], [[0, 72, 4], [4, 76, 4], [8, 81, 8]], [[0, 77, 16]],
+  [[0, 74, 8], [8, 70, 8]], [[0, 72, 8], [8, 76, 8]], [[0, 77, 4], [4, 76, 4], [8, 72, 8]], [[0, 73, 8], [8, 76, 8]],
+];
+
 // Neon soundtrack material (A minor): chord voicings, a 32-bar progression and two melody phrases
 const NEON_CH = {
   Am: { r: 45, v: [57, 60, 64] }, F: { r: 41, v: [57, 60, 65] }, C: { r: 48, v: [55, 60, 64] },
@@ -378,67 +481,160 @@ const SONGS = {
     if ((bar === 8 || bar === 16 || bar === 28) && i === 0) noise(1.4, 0.04, 7000, 0.5, 0, 'highpass', mo(t));
     if (bar === 31 && i >= 8 && i % 2 === 0) snare(0.02 + (i - 8) * 0.006, 0, mo(t, { f: 1900, dur: 0.08 }));
   } },
-  // tense military: taiko hits, low string ostinato, snare rolls, drones
-  modern: { gain: 0.65, bpm: 96, play(s, t, sd) {
-    const bar = Math.floor(s / 16), i = s % 16, roots = [38, 34, 41, 36], root = roots[bar % 4];
-    const ost = [0, 0, 12, 0, 0, 0, 13, 0, 0, 0, 12, 0, 7, 0, 3, 0];
-    if (i % 2 === 0) { tone('sawtooth', mtof(root + ost[i]), 0, sd * 1.6, 0.06, 0, mo(t, { lp: 900, lpEnd: 300 })); tone('sawtooth', mtof(root + ost[i]), 0, sd * 1.6, 0.04, 0, mo(t, { lp: 900, lpEnd: 300, detune: 9 })); }
-    if (i === 0) { tone('sawtooth', mtof(root), 0, sd * 16, 0.05, 0, mo(t, { lp: 420, attack: 0.4 })); tone('sawtooth', mtof(root + 7), 0, sd * 16, 0.03, 0, mo(t, { lp: 420, attack: 0.4 })); }
-    if ([0, 3, 8, 11].includes(i)) { kick(0.45, 0, mo(t, { f0: 90, f1: 32, dur: 0.45 })); noise(0.25, 0.08, 300, 0.7, 0, 'lowpass', mo(t)); }
-    if (i === 4 || i === 12) snare(0.07, 0, mo(t, { f: 1500 }));
-    if (bar % 2 === 1 && i >= 12) snare(0.05 + (i - 12) * 0.02, 0, mo(t, { f: 1700, dur: 0.08 }));
-    if (bar % 4 === 3 && i === 0) { tone('sawtooth', mtof(root + 24), 0, sd * 6, 0.05, 0, mo(t, { lp: 1400, attack: 0.08 })); tone('sawtooth', mtof(root + 27), 0, sd * 6, 0.04, 0, mo(t, { lp: 1400, attack: 0.08 })); }
+  // cinematic military: low string ostinato, taiko, horn melody, snare builds (D minor)
+  modern: { gain: 1.25, bpm: 92, play(s, t, sd) {
+    const bar = Math.floor(s / 16) % 32, i = s % 16, sec = section(bar), c = MOD_CH[MOD_PROG[bar]], calm = sec === 'break';
+    if (i === 0) for (const n of c.v) { // string pad
+      const v = calm ? 0.02 : 0.014, lp = calm ? 1300 : 950;
+      tone('sawtooth', mtof(n), 0, sd * 16.4, v, 0, mo(t, { lp, attack: 0.6 }));
+      tone('sawtooth', mtof(n), 0, sd * 16.4, v, 0, mo(t, { lp, attack: 0.6, detune: 11 }));
+    }
+    if (calm) { if (i === 0) tone('sine', mtof(c.r + 12), 0, sd * 16, 0.08, 0, mo(t, { attack: 0.4 })); }
+    else if (bar >= 2 && i % 2 === 0) { // spiccato low strings
+      const n = c.r + [0, 0, 7, 0, 12, 0, 7, 0][(i / 2) % 8];
+      tone('sawtooth', mtof(n), 0, sd * 1.3, 0.05, 0, mo(t, { lp: 750, lpEnd: 250 }));
+      tone('sawtooth', mtof(n), 0, sd * 1.3, 0.03, 0, mo(t, { lp: 750, lpEnd: 250, detune: 8 }));
+    }
+    const mel = sec === 'a' ? MOD_MEL_A : sec === 'b' ? MOD_MEL_B : null;
+    if (mel) melody(mel, bar, i, (n, len) => { // horn with a low double and an echo
+      const d = sd * len * 1.05;
+      tone('sawtooth', mtof(n), 0, d, 0.03, 0, mo(t, { lp: 1300, attack: 0.09, vib: [5, 9], vibDelay: 0.25 }));
+      tone('sine', mtof(n - 12), 0, d, 0.025, 0, mo(t, { attack: 0.09 }));
+      tone('sawtooth', mtof(n), 0, d, 0.011, sd * 3, mo(t, { lp: 900, attack: 0.09 }));
+    });
+    const full = sec === 'a' || sec === 'b' || (sec === 'build' && bar >= 29);
+    if (full && (i === 0 || i === 10)) { kick(0.25, 0, mo(t, { f0: 95, f1: 38, dur: 0.45 })); noise(0.2, 0.05, 300, 0.7, 0, 'lowpass', mo(t)); }
+    if (sec === 'intro' && bar >= 4 && i === 0) kick(0.26, 0, mo(t, { f0: 90, f1: 36, dur: 0.6 }));
+    if (sec === 'b' && (i === 4 || i === 12)) snare(0.04, 0, mo(t, { f: 1500, dur: 0.12 }));
+    if (sec === 'a' && i === 12) noise(0.04, 0.04, 3200, 2, 0, 'bandpass', mo(t)); // rim
+    if (sec === 'intro' && bar >= 2 && i % 4 === 0) noise(0.03, 0.012, 7000, 0.7, 0, 'highpass', mo(t)); // ticking
+    if ((bar === 7 || bar === 15 || bar === 27) && i === 0) noise(sd * 16, 0.035, 500, 0.7, 0, 'bandpass', mo(t, { attack: sd * 14, fEnd: 4000 }));
+    if ((bar === 8 || bar === 16 || bar === 28) && i === 0) noise(1.8, 0.04, 6000, 0.5, 0, 'highpass', mo(t));
+    if ((bar === 15 || bar === 31) && i >= 8) snare(0.012 + (i - 8) * 0.005, 0, mo(t, { f: 1700, dur: 0.07 }));
   } },
-  // playful toy march: marimba melody, pizzicato oom-pah bass, brushes
-  miniature: { gain: 1.6, bpm: 124, play(s, t, sd) {
-    const bar = Math.floor(s / 16) % 4, i = s % 16;
-    const mel = [seq('72 . 76 . 79 . 76 . 77 . 81 . 79 . . .'), seq('76 . 79 . 84 . 79 . 81 79 77 76 74 . . .'), seq('72 . 76 . 79 . 76 . 77 . 81 . 79 . 84 .'), seq('77 76 74 . 67 . . . 72 . . . . . . .')][bar];
-    const roots = [48, 53, 48, 43][bar];
-    const n = mel[i]; if (n) { tone('sine', mtof(n), 0, 0.35, 0.09, 0, mo(t)); tone('sine', mtof(n) * 4, 0, 0.07, 0.025, 0, mo(t)); }
-    if (i === 0 || i === 8) tone('triangle', mtof(roots), 0, 0.18, 0.16, 0, mo(t));
-    if (i === 4 || i === 12) { tone('triangle', mtof(roots + 7), 0, 0.14, 0.1, 0, mo(t)); tone('triangle', mtof(roots + 16), 0, 0.14, 0.05, 0, mo(t)); }
-    if (i === 4 || i === 12) noise(0.12, 0.06, 3000, 0.8, 0, 'bandpass', mo(t));
-    if (i % 4 === 2) hat(0.03, 0, mo(t));
+  // playful toy march: marimba melody, glockenspiel, pizzicato oom-pah, brushes and woodblock (C major)
+  miniature: { gain: 1.35, bpm: 112, play(s, t, sd) {
+    const bar = Math.floor(s / 16) % 32, i = s % 16, sec = section(bar), c = MINI_CH[MINI_PROG[bar]];
+    const marimba = (n, d, v, dl = 0) => { tone('sine', mtof(n), 0, d, v, dl, mo(t)); tone('sine', mtof(n) * 4, 0, 0.06, v * 0.25, dl, mo(t)); };
+    const glock = (n, v, dl = 0) => bell(mtof(n), 0.9, v, dl, mo(t, { parts: [[1, 1], [2.76, 0.35], [5.4, 0.1]] }));
+    if (sec !== 'break' && (sec !== 'intro' || bar >= 4)) { // oom-pah
+      if (i === 0 || i === 8) tone('triangle', mtof(c.r + (i === 8 && sec === 'b' ? 7 : 0)), 0, 0.2, 0.15, 0, mo(t));
+      if (i === 4 || i === 12) for (const n of c.v.slice(1)) tone('triangle', mtof(n), 0, 0.14, 0.045, 0, mo(t));
+    }
+    if ((sec === 'intro' && bar < 4) || sec === 'break') { // music box over a soft pad
+      if (i % 2 === 0) glock(c.v[[0, 1, 2, 1, 0, 2, 1, 2][(i / 2) % 8]] + 12, 0.022);
+      if (i === 0) for (const n of c.v) tone('triangle', mtof(n - 12), 0, sd * 16, 0.02, 0, mo(t, { attack: 0.5, lp: 1500 }));
+    }
+    const mel = sec === 'a' ? MINI_MEL_A : sec === 'b' ? MINI_MEL_B : null;
+    if (mel) melody(mel, bar, i, (n, len) => {
+      marimba(n, Math.min(0.5, sd * len * 1.2), 0.075);
+      if (sec === 'b') glock(n + 12, 0.012, sd * 3);
+    });
+    if (sec === 'a' || sec === 'b' || sec === 'build' || (sec === 'intro' && bar >= 4)) {
+      if (i === 4 || i === 12) noise(0.12, 0.045, 3000, 0.8, 0, 'bandpass', mo(t)); // brushes
+      if (i % 4 === 2) hat(0.018, 0, mo(t, { f: 8000, dur: 0.03 }));
+    }
+    if (sec === 'b' && (i === 6 || i === 14)) tone('sine', 1250, 0, 0.04, 0.03, 0, mo(t)); // woodblock
+    if (bar >= 30 && i % 2 === 0) noise(0.06, 0.02 + (bar - 30) * 0.012 + i * 0.001, 2500, 1, 0, 'bandpass', mo(t)); // snare roll
+    if ((bar === 8 || bar === 16) && i === 0) glock(84, 0.03);
   } },
-  // chiptune: pulse lead, triangle bass, noise drums
-  pixel: { gain: 1.35, bpm: 150, play(s, t, sd) {
-    const bar = Math.floor(s / 16) % 4, i = s % 16;
-    const mel = [seq('69 . 72 . 76 . 81 . 79 . 76 . 72 . 74 .'), seq('77 . 76 . 72 . 69 . 72 . 74 . 76 . . .'), seq('79 . 76 . 72 . 76 . 79 . 81 . 79 . 76 .'), seq('74 . 71 . 67 . 71 . 74 . 76 . 74 . 71 .')][bar];
-    const root = [45, 41, 48, 43][bar];
-    const n = mel[i]; if (n) tone('square', mtof(n), 0, sd * 1.7, 0.035, 0, mo(t, { attack: 0.002 }));
-    if (i % 2 === 0) tone('triangle', mtof(root + (i % 4 === 0 ? 0 : 12)), 0, sd * 1.8, 0.14, 0, mo(t, { attack: 0.002 }));
-    if (i === 0 || i === 8 || i === 10) tone('triangle', 180, 50, 0.1, 0.25, 0, mo(t, { glide: 0.08 }));
-    if (i === 4 || i === 12) noise(0.12, 0.12, 5000, 0.5, 0, 'lowpass', mo(t));
-    if (i % 2 === 1) noise(0.03, 0.05, 9000, 0.5, 0, 'highpass', mo(t));
+  // chiptune adventure: pulse lead with echo, triangle bass, NES-style arpeggios, noise drums (A minor)
+  pixel: { gain: 1.4, bpm: 132, play(s, t, sd) {
+    const bar = Math.floor(s / 16) % 32, i = s % 16, sec = section(bar), c = PIX_CH[PIX_PROG[bar]];
+    if (sec === 'intro' || sec === 'b' || sec === 'break') tone('square', mtof(c.v[i % 3]), 0, sd * 0.85, sec === 'b' ? 0.008 : 0.014, 0, mo(t, { attack: 0.002, lp: 3000 }));
+    if (sec === 'break') { if (i % 8 === 0) tone('triangle', mtof(c.r), 0, sd * 7.5, 0.12, 0, mo(t, { attack: 0.002 })); }
+    else if (sec !== 'intro' || bar >= 4) { if (i % 2 === 0) tone('triangle', mtof(c.r + (i % 4 === 2 ? 12 : 0)), 0, sd * 1.7, 0.12, 0, mo(t, { attack: 0.002 })); }
+    const mel = sec === 'a' ? PIX_MEL_A : sec === 'b' ? PIX_MEL_B : null;
+    if (mel) melody(mel, bar, i, (n, len) => {
+      tone('square', mtof(n), 0, sd * len * 0.95, 0.026, 0, mo(t, { attack: 0.002, lp: 3800 }));
+      tone('square', mtof(n), 0, sd * Math.min(len, 2) * 0.9, 0.009, sd * 3, mo(t, { attack: 0.002, lp: 2500 }));
+    });
+    const full = sec === 'a' || sec === 'b' || (sec === 'build' && bar >= 29) || (sec === 'intro' && bar >= 4);
+    if (full && (i === 0 || i === 8 || (sec === 'b' && i === 10))) tone('triangle', 180, 50, 0.1, 0.22, 0, mo(t, { glide: 0.08 }));
+    if (full && sec !== 'intro' && (i === 4 || i === 12)) noise(0.11, 0.09, 5000, 0.5, 0, 'lowpass', mo(t));
+    if ((full || sec === 'build') && i % 4 === 2) noise(0.03, 0.035, 9000, 0.5, 0, 'highpass', mo(t));
+    if ((bar === 15 || bar === 31) && i >= 12) noise(0.06, 0.06, 5000, 0.5, 0, 'lowpass', mo(t));
+    if ((bar === 23 || bar === 27) && i === 12) [0, 4, 7, 12].forEach((k, j) => tone('square', mtof(c.v[0] + 12 + k), 0, sd * 0.9, 0.012, sd * j, mo(t, { attack: 0.002, lp: 3000 })));
   } },
-  // frozen stillness: glassy bell arpeggios over a slow pad and wind
-  winter: { gain: 1.45, bpm: 78, play(s, t, sd) {
-    const bar = Math.floor(s / 16) % 4, i = s % 16;
-    const chords = [[64, 67, 71], [60, 64, 67], [67, 71, 74], [62, 66, 69]][bar];
-    if (i % 2 === 0) { const k = (i / 2) % 6, n = chords[k % 3] + (k >= 3 ? 12 : 0) + 12; bell(mtof(n), 2.2, 0.035, 0, mo(t)); }
-    if (i === 0) for (const n of chords) tone('triangle', mtof(n - 12), 0, sd * 16, 0.035, 0, mo(t, { attack: 0.9, lp: 1200 }));
-    if (i === 0) kick(0.18, 0, mo(t, { f0: 70, f1: 35, dur: 0.6 }));
-    if (i === 0 && bar % 2 === 0) noise(sd * 30, 0.03, 900, 2, 0, 'bandpass', mo(t, { attack: sd * 12, fEnd: 400 }));
+  // frozen stillness: felt-piano melody, cascading glass bells, warm pad, wind (E minor)
+  winter: { gain: 0.78, bpm: 76, play(s, t, sd) {
+    const bar = Math.floor(s / 16) % 32, i = s % 16, sec = section(bar), c = WIN_CH[WIN_PROG[bar]];
+    if (i === 0) {
+      for (const n of c.v) tone('triangle', mtof(n - 12), 0, sd * 16.5, sec === 'break' ? 0.04 : 0.03, 0, mo(t, { attack: 1.1, lp: 1300 }));
+      tone('sine', mtof(c.r), 0, sd * 16, 0.08, 0, mo(t, { attack: 0.6 }));
+    }
+    if (bar >= 2 && sec !== 'build' && i % 2 === 0) { // bells cascade over two octaves
+      const idx = [0, 1, 2, 3, 4, 3, 2, 1][(i / 2) % 8];
+      bell(mtof(c.v[idx % 3] + 12 + (idx >= 3 ? 12 : 0)), 2.4, sec === 'break' ? 0.03 : 0.022, 0, mo(t));
+    }
+    const mel = sec === 'a' ? WIN_MEL_A : sec === 'b' ? WIN_MEL_B : null;
+    if (mel) melody(mel, bar, i, (n, len) => { // felt piano with an echo
+      const d = Math.max(0.8, sd * len * 1.1);
+      tone('triangle', mtof(n), 0, d, 0.05, 0, mo(t, { lp: 2200, lpEnd: 600, attack: 0.008 }));
+      tone('sine', mtof(n) * 2, 0, d * 0.5, 0.012, 0, mo(t, { attack: 0.008 }));
+      tone('triangle', mtof(n), 0, d * 0.8, 0.016, sd * 4, mo(t, { lp: 1500, attack: 0.008 }));
+    });
+    if ((sec === 'a' || sec === 'b' || (sec === 'build' && bar >= 29)) && i === 0) kick(0.2, 0, mo(t, { f0: 70, f1: 34, dur: 0.7 }));
+    if (sec === 'b' && i === 3) kick(0.1, 0, mo(t, { f0: 66, f1: 34, dur: 0.5 }));
+    if ((sec === 'b' || sec === 'build') && i % 2 === 1) noise(0.04, 0.008, 7000, 0.7, 0, 'highpass', mo(t));
+    if (i === 0 && (sec === 'intro' || sec === 'break') && bar % 2 === 0) noise(sd * 30, 0.03, 900, 2, 0, 'bandpass', mo(t, { attack: sd * 12, fEnd: 400 }));
+    if ((bar === 7 || bar === 15 || bar === 27) && i === 0) noise(sd * 16, 0.02, 1200, 1.5, 0, 'bandpass', mo(t, { attack: sd * 14, fEnd: 5000 }));
+    if (sec === 'build' && i % 4 === 0) bell(mtof(c.v[(i / 4) % 3] + 24), 1.6, 0.012 + (bar - 28) * 0.004, 0, mo(t));
   } },
-  // desert caravan: Hijaz scale plucks, darbuka rhythm, drone
-  desert: { gain: 1.2, bpm: 104, play(s, t, sd) {
-    const bar = Math.floor(s / 16) % 4, i = s % 16;
-    const mel = [seq('62 . 63 . 66 . 67 . 69 . 67 66 67 . . .'), seq('69 . 70 . 69 . 67 . 66 . 63 . 62 . . .'), seq('74 . 72 . 70 . 69 . 67 . 69 . 66 . . .'), seq('67 66 63 . 62 . . . 62 . 63 . 62 . . .')][bar];
-    const n = mel[i]; if (n) { pluck(mtof(n), 0.5, 0.07, 0, mo(t, { lp: 2200 })); pluck(mtof(n) * 1.003, 0.5, 0.04, 0.012, mo(t, { lp: 2200 })); }
-    if (i === 0) { tone('sawtooth', mtof(38), 0, sd * 16, 0.05, 0, mo(t, { lp: 380, attack: 0.3 })); tone('sawtooth', mtof(45), 0, sd * 16, 0.03, 0, mo(t, { lp: 380, attack: 0.3 })); }
-    if (i === 0 || i === 10) kick(0.32, 0, mo(t, { f0: 110, f1: 55, dur: 0.3 }));
-    if (i === 4 || i === 6 || i === 12) noise(0.05, 0.14, 3500, 1.5, 0, 'bandpass', mo(t));
-    if (i === 14) noise(0.04, 0.07, 4500, 1.5, 0, 'bandpass', mo(t));
-    hat(0.015, 0, mo(t, { f: 8000, dur: 0.03 }));
+  // desert caravan: oud melody, ney flute, darbuka rhythms over a drone (D Hijaz)
+  desert: { gain: 1.33, bpm: 100, play(s, t, sd) {
+    const bar = Math.floor(s / 16) % 32, i = s % 16, sec = section(bar), c = DES_CH[DES_PROG[bar]];
+    if (i === 0) {
+      tone('sawtooth', mtof(38), 0, sd * 16.4, 0.032, 0, mo(t, { lp: 420, attack: 0.4 }));
+      tone('sawtooth', mtof(45), 0, sd * 16.4, 0.025, 0, mo(t, { lp: 360, attack: 0.4 }));
+      if (sec !== 'intro' || bar >= 4) for (const n of c.v) tone('sawtooth', mtof(n), 0, sd * 16.4, 0.011, 0, mo(t, { lp: 1100, attack: 0.7, detune: 6 }));
+    }
+    const oud = (n, len, v = 0.065) => { const d = Math.min(0.7, sd * len + 0.2); pluck(mtof(n), d, v, 0, mo(t, { lp: 2400 })); pluck(mtof(n) * 1.004, d, v * 0.55, 0.014, mo(t, { lp: 2400 })); };
+    const ney = (n, len, v = 0.045) => {
+      const d = sd * len * 1.05, f = mtof(n);
+      tone('triangle', f, 0, d, v, 0, mo(t, { lp: 2600, attack: 0.12, vib: [5.5, 16], vibDelay: 0.2 }));
+      noise(d, v * 0.25, f * 2, 4, 0, 'bandpass', mo(t, { attack: 0.1, fEnd: f * 2 })); // breath
+      tone('triangle', f, 0, d * 0.7, v * 0.3, sd * 3, mo(t, { lp: 1800, attack: 0.12 }));
+    };
+    if (sec === 'intro' && bar >= 2 && i % 4 === 0) oud(DES_FIG[(bar * 4 + i / 4) % 8], 2, 0.035);
+    if (sec === 'a') melody(DES_MEL_A, bar, i, (n, len) => oud(n, len));
+    if (sec === 'b') melody(DES_MEL_B, bar, i, (n, len) => ney(n, len));
+    if (sec === 'break') melody(DES_MEL_B, bar - 8, i, (n, len) => ney(n - 12, len, 0.04)); // the flute theme, an octave lower, over the drone
+    const doum = () => tone('sine', 120, 58, 0.28, 0.2, 0, mo(t, { glide: 0.1 }));
+    const tek = v => { noise(0.05, v, 3400, 1.5, 0, 'bandpass', mo(t)); tone('triangle', 820, 600, 0.03, v * 0.3, 0, mo(t)); };
+    if (sec === 'a' || sec === 'b' || sec === 'build' || (sec === 'intro' && bar >= 4)) { // maqsum, ghost notes in B
+      if (i === 0 || i === 8 || (sec === 'a' && i === 2)) doum();
+      if (i === 2 && sec !== 'a') tek(0.1);
+      if (i === 6 || i === 12) tek(0.11);
+      if (sec === 'b' && (i === 10 || i === 14 || i === 15)) tek(0.04);
+      if (i % 2 === 1) noise(0.03, 0.01, 8500, 0.7, 0, 'highpass', mo(t)); // riq
+    }
+    if (sec === 'break' && i === 0) doum();
+    if (bar >= 30 && i % 2 === 0) tek(0.03 + (bar - 30) * 0.03 + i * 0.002);
+    if ((bar === 7 || bar === 15 || bar === 27) && i === 0) noise(sd * 16, 0.025, 600, 0.8, 0, 'bandpass', mo(t, { attack: sd * 14, fEnd: 3500 }));
   } },
-  // minimal drafting-room pulses
-  blueprint: { gain: 1.7, bpm: 96, play(s, t, sd) {
-    const bar = Math.floor(s / 16) % 4, i = s % 16;
-    const cyc = [62, 69, 65, 72, 69, 76], shift = [0, -2, 3, -4][bar];
-    if (i % 2 === 0) tone('sine', mtof(cyc[(s / 2) % 6] + shift), 0, sd * 2.5, 0.05, 0, mo(t));
-    if (i === 0 || i === 8) kick(0.2, 0, mo(t, { f0: 100, f1: 45, dur: 0.2 }));
-    if (i % 4 === 2) hat(0.02, 0, mo(t, { f: 9000, dur: 0.02 }));
-    if (i === 0 && bar % 2 === 0) for (const n of [50, 57, 64]) tone('sine', mtof(n + shift), 0, sd * 32, 0.025, 0, mo(t, { attack: 1 }));
+  // minimal drafting room: interlocking pulses (3 against 2), soft sub, ticking pens, sparse sine lead (D minor)
+  blueprint: { gain: 1.05, bpm: 100, play(s, t, sd) {
+    const bar = Math.floor(s / 16) % 32, i = s % 16, sec = section(bar), c = BP_CH[BP_PROG[bar]];
+    if (i === 0) {
+      for (const n of c.v) tone('sine', mtof(n - 12), 0, sd * 16.4, sec === 'break' ? 0.035 : 0.025, 0, mo(t, { attack: 0.9 }));
+      if (sec !== 'break') tone('sine', mtof(c.r), 0, sd * 15, 0.055, 0, mo(t, { attack: 0.3 }));
+    }
+    if (i % 2 === 0) tone('sine', mtof(c.v[(s / 2) % 3]), 0, sd * 2.2, sec === 'break' ? 0.03 : 0.034, 0, mo(t, { attack: 0.004 }));
+    if (bar >= 4 && sec !== 'build' && s % 3 === 0) tone('triangle', mtof(c.v[(s / 3) % 3] + 24), 0, sd * 1.6, 0.012, 0, mo(t, { attack: 0.004, lp: 3000 }));
+    const mel = sec === 'a' ? BP_MEL_A : sec === 'b' ? BP_MEL_B : null;
+    if (mel) melody(mel, bar, i, (n, len) => {
+      const d = sd * len * 1.05;
+      tone('sine', mtof(n), 0, d, 0.05, 0, mo(t, { attack: 0.03 }));
+      tone('triangle', mtof(n), 0, d, 0.012, 0, mo(t, { attack: 0.03, lp: 2400 }));
+      tone('sine', mtof(n), 0, d * 0.7, 0.018, sd * 3, mo(t, { attack: 0.03 }));
+    });
+    const full = sec === 'a' || sec === 'b' || (sec === 'build' && bar >= 29);
+    if ((full && (i === 0 || i === 8)) || (sec === 'intro' && bar >= 4 && i === 0)) kick(0.2, 0, mo(t, { f0: 100, f1: 45, dur: 0.22 }));
+    if (full && i === 12) noise(0.05, 0.02, 2600, 2, 0, 'bandpass', mo(t)); // pencil tap
+    if (sec !== 'break' && bar >= 2 && i % 4 === 2) hat(0.016, 0, mo(t, { f: 9000, dur: 0.02 }));
+    if (sec === 'b' && i % 2 === 1) hat(0.006, 0, mo(t, { f: 10000, dur: 0.015 }));
+    if ((bar === 7 || bar === 15 || bar === 27) && i === 0) noise(sd * 16, 0.02, 700, 0.8, 0, 'bandpass', mo(t, { attack: sd * 14, fEnd: 4500 }));
   } },
 };
 
