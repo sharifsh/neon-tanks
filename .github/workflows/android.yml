@@ -19,7 +19,8 @@ jobs:
       - run: npx cap sync android
       - name: Build debug APK and unsigned release bundle
         working-directory: android
-        run: ./gradlew --no-daemon assembleDebug bundleRelease
+        # files uploaded through the GitHub website lose the executable bit
+        run: chmod +x gradlew && ./gradlew --no-daemon assembleDebug bundleRelease
       - uses: actions/upload-artifact@v4
         with:
           name: android-build-${{ github.run_number }}

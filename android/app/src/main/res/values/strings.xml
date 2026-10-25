@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Neon Tanks</string>
+    <string name="title_activity_main">Neon Tanks</string>
+    <string name="package_name">com.sharifsh.neontanks</string>
+    <string name="custom_url_scheme">com.sharifsh.neontanks</string>
+</resources>
