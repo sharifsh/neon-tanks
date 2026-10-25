@@ -5,7 +5,7 @@ let musicOn = true, lastPlay = {}, pack = 'neon';
 const settings = { sfx: 0.5, music: 0.22 };
 const SFX_GAIN = { neon: 1, modern: 0.75, miniature: 1.3, pixel: 1.8, winter: 0.8, desert: 0.9, blueprint: 1.5 };
 const sfxLevel = () => settings.sfx * (SFX_GAIN[pack] || 1);
-const REVERB = { neon: [0.12, 0.2], modern: [0.22, 0.25], miniature: [0.1, 0.15], pixel: [0, 0.05], winter: [0.45, 0.6], desert: [0.18, 0.3], blueprint: [0.15, 0.35] };
+const REVERB = { neon: [0.12, 0.32], modern: [0.22, 0.25], miniature: [0.1, 0.15], pixel: [0, 0.05], winter: [0.45, 0.6], desert: [0.18, 0.3], blueprint: [0.15, 0.35] };
 
 export function initAudio() {
   if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
@@ -263,20 +263,120 @@ export function playEvents(evs) {
   }
 }
 
+// ---------- engine hum while your own tank moves (one voice per style) ----------
+const ENGINES = {
+  neon: { kind: 'synth', wave: 'sawtooth', f: 52, lp: 260, trem: 9, depth: 0.3, vol: 0.05 },
+  pixel: { kind: 'synth', wave: 'square', f: 55, lp: 650, trem: 15, depth: 0.7, vol: 0.028 },
+  miniature: { kind: 'synth', wave: 'triangle', f: 92, lp: 1100, trem: 21, depth: 0.55, vol: 0.04 },
+  blueprint: { kind: 'synth', wave: 'sine', f: 68, lp: 500, trem: 6, depth: 0.25, vol: 0.06 },
+  modern: { kind: 'diesel', f: 38, lp: 170, trem: 11, depth: 0.5, vol: 0.1 },
+  winter: { kind: 'diesel', f: 40, lp: 180, trem: 10, depth: 0.5, vol: 0.09 },
+  desert: { kind: 'diesel', f: 36, lp: 160, trem: 12, depth: 0.5, vol: 0.1 },
+};
+let eng = null;
+function buildEngine() {
+  const c = ENGINES[pack] || ENGINES.neon;
+  const out = ctx.createGain(); out.gain.value = 0; out.connect(sfxGain);
+  const trem = ctx.createGain(); trem.gain.value = 1 - c.depth / 2; trem.connect(out);
+  const lfo = ctx.createOscillator(); lfo.frequency.value = c.trem;
+  const lfoAmt = ctx.createGain(); lfoAmt.gain.value = c.depth / 2; lfo.connect(lfoAmt); lfoAmt.connect(trem.gain);
+  const filt = ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = c.lp; filt.Q.value = 0.9; filt.connect(trem);
+  const oscs = [], nodes = [lfo];
+  if (c.kind === 'diesel') {
+    const src = ctx.createBufferSource(); src.buffer = noiseBuf; src.loop = true; src.connect(filt); nodes.push(src);
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = c.f; const og = ctx.createGain(); og.gain.value = 0.7; o.connect(og); og.connect(filt); oscs.push([o, c.f]); nodes.push(o);
+  } else {
+    for (const [mul, v] of [[1, 1], [1.012, 0.6]]) { const o = ctx.createOscillator(); o.type = c.wave; o.frequency.value = c.f * mul; const og = ctx.createGain(); og.gain.value = v; o.connect(og); og.connect(filt); oscs.push([o, c.f * mul]); nodes.push(o); }
+  }
+  nodes.forEach(n => n.start());
+  return { pack, cfg: c, out, filt, oscs, nodes, on: false, boost: 1 };
+}
+function stopEngine() {
+  if (!eng) return;
+  const e = eng; eng = null;
+  e.out.gain.setTargetAtTime(0, ctx.currentTime, 0.04);
+  setTimeout(() => { e.nodes.forEach(n => { try { n.stop(); } catch (x) {} }); e.out.disconnect(); }, 400);
+}
+// Called every frame: moving = one of your tanks is driving; boost > 1 while dashing.
+export function setEngine(moving, boost = 1) {
+  if (!ctx || ctx.state !== 'running') return;
+  if (eng && eng.pack !== pack) stopEngine();
+  if (!eng) { if (!moving) return; eng = buildEngine(); }
+  if (moving === eng.on && boost === eng.boost) return;
+  eng.on = moving; eng.boost = boost;
+  const now = ctx.currentTime, k = moving ? boost : 0.85;
+  eng.out.gain.cancelScheduledValues(now);
+  eng.out.gain.setTargetAtTime(moving ? eng.cfg.vol : 0, now, moving ? 0.05 : 0.12);
+  for (const [o, f] of eng.oscs) o.frequency.setTargetAtTime(f * k, now, 0.15);
+  eng.filt.frequency.setTargetAtTime(eng.cfg.lp * (moving ? boost : 0.8), now, 0.15);
+}
+
 // ---------- soundtracks (step sequencer, 16 steps per bar) ----------
 const M = { at: 0 }; // shared options object reused per note
 const mo = (t, extra) => ({ at: t, dest: musicGain, ...extra });
 const seq = str => str.trim().split(/\s+/).map(x => x === '.' ? 0 : +x);
 
+// Neon soundtrack material (A minor): chord voicings, a 32-bar progression and two melody phrases
+const NEON_CH = {
+  Am: { r: 45, v: [57, 60, 64] }, F: { r: 41, v: [57, 60, 65] }, C: { r: 48, v: [55, 60, 64] },
+  G: { r: 43, v: [55, 59, 62] }, Em: { r: 40, v: [55, 59, 64] },
+};
+const NEON_PROG = ['Am', 'F', 'C', 'G', 'Am', 'F', 'C', 'G', 'Am', 'F', 'C', 'G', 'Am', 'F', 'C', 'G',
+  'F', 'G', 'Em', 'Am', 'F', 'G', 'Em', 'Am', 'Am', 'F', 'Am', 'F', 'F', 'G', 'Am', 'G'];
+const NEON_MEL_A = [ // [step, note, length in steps] per bar, over Am F C G
+  [[0, 76, 6], [6, 74, 2], [8, 72, 8]],
+  [[0, 72, 4], [4, 74, 4], [8, 76, 6], [14, 79, 2]],
+  [[0, 79, 6], [6, 76, 2], [8, 74, 8]],
+  [[0, 74, 4], [4, 72, 4], [8, 71, 8]],
+];
+const NEON_MEL_B = [ // over F G Em Am
+  [[0, 81, 8], [8, 79, 4], [12, 77, 4]],
+  [[0, 79, 6], [6, 77, 2], [8, 74, 8]],
+  [[0, 76, 8], [8, 74, 4], [12, 71, 4]],
+  [[0, 72, 12]],
+];
 const musicLevel = () => (musicOn ? settings.music * ((SONGS[pack] && SONGS[pack].gain) || 1) : 0);
 const SONGS = {
-  neon: { gain: 1, bpm: 118, play(s, t, sd) {
-    const bass = [36, 36, 43, 43, 41, 41, 39, 43], arp = [0, 7, 12, 15, 12, 7, 3, 7];
-    const root = bass[Math.floor(s / 16) % bass.length];
-    if (s % 4 === 0) tone('sawtooth', mtof(root), 0, sd * 3.5, 0.18, 0, mo(t, { lp: 400 }));
-    tone('square', mtof(root + 24 + arp[s % 8]), 0, sd * 0.9, 0.035, 0, mo(t, { lp: 2500 }));
-    if (s % 8 === 4) hat(0.12, 0, mo(t, { f: 2000, dur: 0.12 }));
-    if (s % 4 === 0) kick(0.35, 0, mo(t, { f0: 140, f1: 40, dur: 0.18 }));
+  // relaxed synthwave: warm pads, rolling bass, soft triangle arps and a sparse lead.
+  // 32-bar arrangement (intro, two melody sections, breakdown, build) so it doesn't loop every few seconds.
+  neon: { gain: 1.15, bpm: 98, play(s, t, sd) {
+    const bar = Math.floor(s / 16) % 32, i = s % 16;
+    const sec = bar < 8 ? 'intro' : bar < 16 ? 'a' : bar < 24 ? 'b' : bar < 28 ? 'break' : 'build';
+    const c = NEON_CH[NEON_PROG[bar]];
+    // pad: two slightly detuned, filtered saws per chord tone
+    if (i === 0) for (const n of c.v) {
+      const v = sec === 'break' ? 0.02 : 0.017, lp = sec === 'break' ? 1500 : 1000;
+      tone('sawtooth', mtof(n), 0, sd * 16.4, v, 0, mo(t, { lp, attack: 0.45 }));
+      tone('sawtooth', mtof(n), 0, sd * 16.4, v, 0, mo(t, { lp, attack: 0.45, detune: 9 }));
+    }
+    // bass: root/octave eighths (held sub in the breakdown)
+    if (sec === 'break') { if (i === 0) tone('sine', mtof(c.r), 0, sd * 16, 0.11, 0, mo(t, { attack: 0.25 })); }
+    else if (bar >= 2 && i % 2 === 0) {
+      const up = i % 4 === 2;
+      tone('sawtooth', mtof(c.r + (up ? 12 : 0)), 0, sd * 1.7, up ? 0.05 : 0.075, 0, mo(t, { lp: 520, lpEnd: 160 }));
+    }
+    // arpeggio
+    if (bar >= 4 && sec !== 'build' && i % 2 === 0) {
+      const pat = sec === 'b' ? [0, 2, 1, 2] : [0, 1, 2, 1], n = c.v[pat[(i / 2) % 4]] + 12;
+      tone('triangle', mtof(n), 0, sd * 1.8, sec === 'break' ? 0.032 : 0.024, 0, mo(t, { lp: 2400, lpEnd: 900 }));
+    }
+    // lead melody with a soft echo
+    const mel = sec === 'a' ? NEON_MEL_A[bar % 4] : sec === 'b' ? NEON_MEL_B[bar % 4] : null;
+    if (mel) for (const [st, n, len] of mel) if (st === i) {
+      const d = sd * len * 1.1;
+      tone('triangle', mtof(n), 0, d, 0.042, 0, mo(t, { lp: 3000, attack: 0.02 }));
+      tone('triangle', mtof(n), 0, d, 0.026, 0, mo(t, { lp: 3000, attack: 0.02, detune: 7 }));
+      tone('triangle', mtof(n), 0, d, 0.014, sd * 3, mo(t, { lp: 1600, attack: 0.02 }));
+    }
+    // drums: kick and clap only in the full sections, quiet hats, a riser before each new section
+    const full = sec === 'a' || sec === 'b' || (sec === 'build' && bar >= 29);
+    if ((full && (i === 0 || i === 8)) || (sec === 'intro' && bar >= 4 && i === 0)) kick(0.28, 0, mo(t, { f0: 120, f1: 42, dur: 0.24 }));
+    if (full && (i === 4 || i === 12)) { snare(0.045, 0, mo(t, { f: 1700, dur: 0.14 })); noise(0.05, 0.03, 5000, 0.7, 0, 'highpass', mo(t)); }
+    if ((bar >= 2 && sec !== 'break') && i % 4 === 2) hat(0.02, 0, mo(t, { f: 8500, dur: 0.035 }));
+    if (sec === 'b' && i % 2 === 1) hat(0.008, 0, mo(t, { f: 9500, dur: 0.02 }));
+    if ((bar === 7 || bar === 15 || bar === 27) && i === 0) noise(sd * 16, 0.035, 700, 0.8, 0, 'bandpass', mo(t, { attack: sd * 14, fEnd: 5000 }));
+    if ((bar === 8 || bar === 16 || bar === 28) && i === 0) noise(1.4, 0.04, 7000, 0.5, 0, 'highpass', mo(t));
+    if (bar === 31 && i >= 8 && i % 2 === 0) snare(0.02 + (i - 8) * 0.006, 0, mo(t, { f: 1900, dur: 0.08 }));
   } },
   // tense military: taiko hits, low string ostinato, snare rolls, drones
   modern: { gain: 0.65, bpm: 96, play(s, t, sd) {

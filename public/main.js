@@ -8,7 +8,7 @@ import { Net, makeRoomCode, saveLevel, loadLevel, listLevels } from './net.js';
 import { Editor, mapPreview } from './editor.js';
 import { decodeMap, generateMap, mapLayout, mapDims } from './levels.js';
 import { builtinMaps } from './maps.js';
-import { initAudio, playEvents, startMusic, setVolume, sfx, setAudioTheme } from './audio.js';
+import { initAudio, playEvents, startMusic, setVolume, sfx, setAudioTheme, setEngine } from './audio.js';
 import { Full, FREE, SITE_URL, APP_STORE_URL, PLAY_STORE_URL, modeFree, diffFree, themeFree, classFree, mapFree } from './store.js';
 
 const $ = s => document.querySelector(s);
@@ -698,6 +698,7 @@ addEventListener('keydown', e => {
   if (S.screen === 'game' && !S.endShown) togglePause();
 });
 addEventListener('resize', () => { if (S.screen === 'game') renderer.resize(); resizeBg(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) setEngine(false); }); // rAF stops in background tabs
 
 // ---------- main render loop ----------
 let lastFrame = performance.now();
@@ -711,12 +712,16 @@ function frame(t) {
       evs = S.localEv; S.localEv = [];
     } else { view = interpView(); evs = S.clientEv; S.clientEv = []; }
     if (evs.length) { renderer.addEvents(evs); playEvents(evs); }
+    let driving = false, boost = 1;
     if (view) {
       if (view.hud && view.hud.players.length > 1) view.names = Object.fromEntries(view.hud.players.map(p => [p[0], p[1]]));
-      renderer.render(view, dt, localIds());
+      const mine = localIds();
+      if (!S.paused) for (const tk of view.tk) if (tk[10] && mine.has(tk[10]) && (tk[7] & 1)) { driving = true; if (tk[7] & 64) boost = 1.35; }
+      renderer.render(view, dt, mine);
       updateHud(view.hud);
     } else renderer.render(null, dt);
-  } else if (S.screen !== 'editor') drawBg(dt);
+    setEngine(driving, boost);
+  } else { setEngine(false); if (S.screen !== 'editor') drawBg(dt); }
   requestAnimationFrame(frame);
 }
 

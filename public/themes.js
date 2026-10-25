@@ -232,7 +232,7 @@ export const NEON = {
   water: neonWater, waterBlend: 'lighter',
   base: neonBase, pickup: neonPickup, bullet: glowBullet,
   tankShadow: 0, vignette: 0.55,
-  fx: { add: true, fire: false, light: 1, smoke: '#444', chip: '#ff7a45', steel: '#e6fbff', track: 'rgba(120,160,255,0.07)', trackFade: 0.04, dust: null, spark: null },
+  fx: { add: true, fire: false, light: 1, smoke: '#444', chip: '#ff7a45', steel: '#e6fbff', track: 'tank', trackFade: 0.09, exhaust: 'glow', dust: null, spark: null },
   label: { font: "700 {s}px 'Rajdhani', system-ui", big: "800 {s}px 'Orbitron', system-ui" },
 };
 
@@ -964,7 +964,7 @@ const withSpecial = (cell, fam, P) => (g, grid, x, y, cs, layer) => { if (!paint
 // ======================================================================
 // THEME TABLE
 // ======================================================================
-const realFx = (o) => ({ add: false, fire: true, light: 0.5, trackFade: 0.015, ...o });
+const realFx = (o) => ({ add: false, fire: true, light: 0.5, trackFade: 0.015, exhaust: 'smoke', ...o });
 const P_MINI = { shadow: 'rgba(20,25,10,0.38)', bevelLight: 'rgba(255,240,210,0.35)', bevelDark: 'rgba(0,0,0,0.3)', grime: false,
   brick: { base: '#b0583a', light: '#c9704c', dark: '#8a4028', mortar: '#d8c9a8' },
   steel: { base: '#8f8f88', light: '#c2c2ba', dark: 'rgba(60,60,55,0.7)', noise: ['rgba(0,0,0,0.12)', 'rgba(255,255,255,0.12)'], plate: false },
@@ -1000,7 +1000,7 @@ export const THEMES = {
     id: 'pixel', name: 'Pixel Remaster', desc: 'The 1990 look, remastered', pixel: true, word: 'PIXEL',
     bg: '#000000', floor: pixelFloor, cell: withSpecial(pixelCell, 'pixel'), fam: 'pixel', tank: pixelTank, frame: pixelFrame, water: pixelWater, waterBlend: 'source-over',
     base: pixelBase, pickup: pixelPickup, bullet: pixelBullet, tankShadow: 0, vignette: 0.35, post: scanlines,
-    fx: { add: true, fire: true, square: true, light: 0.55, smoke: '#5a5a5a', chip: '#b8471d', steel: '#fcfcfc', track: null, dust: null },
+    fx: { add: true, fire: true, square: true, light: 0.55, smoke: '#5a5a5a', chip: '#b8471d', steel: '#fcfcfc', track: 'rgba(150,150,150,0.16)', trackFade: 0.07, dust: '#a8a8a8', dustChance: 0.6, dustSize: 0.55 },
     label: { font: "700 {s}px 'Rajdhani', monospace", big: "400 {s}px 'Press Start 2P', monospace", outline: true },
   },
   winter: mkReal('winter', 'Winter Front', 'Snowfield, frozen rivers, snowfall', {
@@ -1019,7 +1019,7 @@ export const THEMES = {
     id: 'blueprint', name: 'Blueprint', desc: 'Tactical command-room plans', word: 'BLUEPRINT',
     bg: '#0b2446', floor: bpFloor, cell: withSpecial(bpCell, 'bp'), fam: 'bp', tank: bpTank, frame: bpFrame, water: null,
     base: bpBase, pickup: bpPickup, bullet: bpBullet, tankShadow: 0, vignette: 0.45,
-    fx: { add: false, sketch: true, light: 0, smoke: '#cfe3ff', chip: '#e6f0ff', steel: '#ffffff', track: 'rgba(210,230,255,0.13)', trackFade: 0.03, dust: null },
+    fx: { add: false, sketch: true, light: 0, smoke: '#cfe3ff', chip: '#e6f0ff', steel: '#ffffff', track: 'rgba(210,230,255,0.2)', trackFade: 0.03, dust: '#cfe3ff', dustChance: 0.35 },
     label: { font: "600 {s}px 'Share Tech Mono', monospace", big: "400 {s}px 'Share Tech Mono', monospace", outline: false },
   },
   modern: mkReal('modern', 'Modern Warfare', 'Realistic battlefield & main battle tanks', {

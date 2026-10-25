@@ -5,6 +5,8 @@ import { THEMES, NEON, TAU, rgba, rr, hex, drawIcon, lighten } from './themes.js
 
 const PU_COLORS = { star: '#ffd23f', helmet: '#3de0ff', grenade: '#ff4d5e', shovel: '#ff9b3d', clock: '#a98bff', tank: '#3dff8b' };
 const PU_LABEL = { star: 'POWER UP', helmet: 'SHIELD', grenade: 'NUKE', shovel: 'FORTIFY', clock: 'FREEZE', tank: '+1 LIFE' };
+// tank colours can be #rgb or #rrggbb; anything else falls back to a neutral cyan
+const tint = (c, a) => /^#[0-9a-f]{6}$/i.test(c) ? rgba(c, a) : /^#[0-9a-f]{3}$/i.test(c) ? rgba('#' + [...c.slice(1)].map(x => x + x).join(''), a) : `rgba(127,220,255,${a})`;
 function mk(w, h) { const c = document.createElement('canvas'); c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h)); return c; }
 
 // current theme (shared with editor + menus)
@@ -194,28 +196,59 @@ export class Renderer {
     gr.addColorStop(0, 'rgba(10,8,5,0.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = gr; g.beginPath(); g.arc(x * cs, y * cs, r * cs, 0, TAU); g.fill();
   }
-  tracks(view) {
+  // Movement effects: tread marks, dust and exhaust. Your own tank gets the strongest version so it reads clearly.
+  tracks(view, dt = 1 / 60, localId) {
     const fx = this.theme.fx, g = this.decals.getContext('2d'), cs = this.cs;
     for (const t of view.tk) {
-      const [id, x100, y100, dir, size, , , flags] = t;
+      const [id, x100, y100, dir, size, , color, flags, , , owner] = t;
       if (!(flags & 1)) continue;
       const x = x100 / 100, y = y100 / 100;
+      const mine = !!(owner && localId && (localId.has ? localId.has(owner) : owner === localId));
+      const back = [[0, 1], [-1, 0], [0, -1], [1, 0]][dir], side = [back[1], -back[0]];
+      const rx = x + size / 2 + back[0] * size * 0.48, ry = y + size / 2 + back[1] * size * 0.48; // rear centre
+      const fast = flags & 64 ? 1.8 : 1;
+      // exhaust: neon glow motes, or a little diesel smoke behind your own tank in the realistic styles
+      if (fx.exhaust === 'glow') {
+        const rate = (mine ? 34 : 9) * fast;
+        for (let k = Math.random() < (rate * dt) % 1 ? 1 : 0, n = Math.floor(rate * dt) + k; n > 0; n--) {
+          const off = (Math.random() - 0.5) * size * 0.55, sp = 1.2 + Math.random() * 1.4;
+          this.particles.push({ x: rx + side[0] * off, y: ry + side[1] * off, vx: back[0] * sp + side[0] * (Math.random() - 0.5) * 0.8, vy: back[1] * sp + side[1] * (Math.random() - 0.5) * 0.8, life: 0, max: 0.25 + Math.random() * 0.25, size: (mine ? 0.15 : 0.12) * size, color: Math.random() < 0.1 ? '#ffffff' : color, type: 'glow' });
+        }
+      } else if (fx.exhaust === 'smoke' && mine && Math.random() < 5 * dt * fast) {
+        this.particles.push({ x: rx, y: ry, vx: back[0] * 0.5 + (Math.random() - 0.5) * 0.3, vy: back[1] * 0.5 + (Math.random() - 0.5) * 0.3 - 0.15, life: 0, max: 0.8 + Math.random() * 0.4, size: 0.16 * size, color: fx.smoke, type: 'smoke' });
+      }
       const last = this.trackPos.get(id);
       if (last && Math.hypot(last[0] - x, last[1] - y) < 0.3) continue;
       this.trackPos.set(id, [x, y]);
       const vert = dir % 2 === 0, s = size * cs;
-      if (fx.track) {
+      const treads = (k, q, w = 0) => {
+        if (vert) { g.fillRect(x * cs + s * 0.04 - w, y * cs + s * 0.45 - w, s * k + w * 2, s * q + w * 2); g.fillRect(x * cs + s * (0.96 - k) - w, y * cs + s * 0.45 - w, s * k + w * 2, s * q + w * 2); }
+        else { g.fillRect(x * cs + s * 0.45 - w, y * cs + s * 0.04 - w, s * q + w * 2, s * k + w * 2); g.fillRect(x * cs + s * 0.45 - w, y * cs + s * (0.96 - k) - w, s * q + w * 2, s * k + w * 2); }
+      };
+      if (fx.track === 'tank') { // neon: light trails in the tank's own colour, a soft halo plus a brighter core
+        g.fillStyle = tint(color, mine ? 0.12 : 0.06); treads(0.16, 0.12, cs * 0.06);
+        g.fillStyle = tint(color, mine ? 0.42 : 0.2); treads(0.1, 0.1);
+      } else if (fx.track) {
         g.fillStyle = fx.track;
         const k = fx.fire ? 0.2 : 0.16, q = fx.fire ? 0.2 : 0.12;
-        if (vert) { g.fillRect(x * cs + s * 0.04, y * cs + s * 0.45, s * k, s * q); g.fillRect(x * cs + s * (0.96 - k), y * cs + s * 0.45, s * k, s * q); }
-        else { g.fillRect(x * cs + s * 0.45, y * cs + s * 0.04, s * q, s * k); g.fillRect(x * cs + s * 0.45, y * cs + s * (0.96 - k), s * q, s * k); }
+        treads(k, q);
       }
-      if (fx.dust && Math.random() < 0.55) {
-        const back = [[0, 1], [-1, 0], [0, -1], [1, 0]][dir];
-        this.particles.push({ x: x + size / 2 + back[0] * size * 0.55 + (Math.random() - 0.5) * size * 0.6, y: y + size / 2 + back[1] * size * 0.55 + (Math.random() - 0.5) * size * 0.6, vx: back[0] * 0.6 + (Math.random() - 0.5) * 0.5, vy: back[1] * 0.6 + (Math.random() - 0.5) * 0.5, life: 0, max: 0.7 + Math.random() * 0.5, size: 0.35 * size, color: fx.dust, type: 'smoke' });
+      if (fx.dust && Math.random() < (mine ? 1 : fx.dustChance ?? 0.55)) {
+        this.particles.push({ x: rx + (Math.random() - 0.5) * size * 0.6, y: ry + (Math.random() - 0.5) * size * 0.6, vx: back[0] * 0.6 + (Math.random() - 0.5) * 0.5, vy: back[1] * 0.6 + (Math.random() - 0.5) * 0.5, life: 0, max: 0.7 + Math.random() * 0.5, size: (mine ? 0.4 : 0.35) * size * (fx.dustSize || 1), color: fx.dust, type: 'smoke' });
       }
     }
     if (this.trackPos.size > 400) this.trackPos.clear();
+  }
+
+  glowSprite(color) { // cached soft dot used for neon exhaust
+    const key = 'glow' + color;
+    let s = this.caches.get(key);
+    if (!s) {
+      s = mk(64, 64); const g = s.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.3, tint(color, 0.8)); gr.addColorStop(1, tint(color, 0));
+      g.fillStyle = gr; g.fillRect(0, 0, 64, 64); this.caches.set(key, s);
+    }
+    return s;
   }
 
   // ---------- frame ----------
@@ -227,7 +260,7 @@ export class Renderer {
     if (!view) return;
     this.ensureSize(view.hud && view.hud.size);
     if (view.map) this.setMap(view.map);
-    this.tracks(view);
+    this.tracks(view, dt, localId);
     this.decalFade += dt;
     if (this.decalFade > 0.5) { this.decalFade = 0; const d = this.decals.getContext('2d'); d.globalCompositeOperation = 'destination-out'; d.fillStyle = `rgba(0,0,0,${th.fx.trackFade ?? 0.04})`; d.fillRect(0, 0, this.decals.width, this.decals.height); d.globalCompositeOperation = 'source-over'; }
 
@@ -446,6 +479,10 @@ export class Renderer {
         const gr = g.createRadialGradient(X, Y, 0, X, Y, R);
         gr.addColorStop(0, 'rgba(255,250,220,0.95)'); gr.addColorStop(0.35, 'rgba(255,190,80,0.85)'); gr.addColorStop(0.75, 'rgba(230,80,20,0.5)'); gr.addColorStop(1, 'rgba(120,30,0,0)');
         g.fillStyle = gr; g.beginPath(); g.arc(X, Y, R, 0, TAU); g.fill();
+      } else if (p.type === 'glow') {
+        g.globalCompositeOperation = 'lighter'; g.globalAlpha = k * 0.65;
+        const R = p.size * cs * (1 + (1 - k) * 0.9);
+        g.drawImage(this.glowSprite(p.color), X - R, Y - R, R * 2, R * 2);
       } else if (p.type === 'ring') {
         g.globalCompositeOperation = fx.add ? 'lighter' : 'source-over'; g.globalAlpha = k; g.strokeStyle = p.color; g.lineWidth = cs * 0.12 * k + 1;
         g.beginPath(); g.arc(X, Y, p.size * cs * (1 - k * k) + 1, 0, TAU); g.stroke();
