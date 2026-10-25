@@ -1,0 +1,22 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="fonts.css">
+<style>
+body{margin:0;background:#05070e}
+.art{position:relative;overflow:hidden;background:#05070e}
+.strip{position:absolute;inset:-10% -5%;display:flex;gap:1.2%;transform:skewX(-12deg)}
+.strip div{flex:1;background-size:cover;background-position:center;filter:saturate(1.15) brightness(.78)}
+.shade{position:absolute;inset:0;background:radial-gradient(ellipse 55% 60% at 50% 50%,rgba(5,7,14,.86),rgba(5,7,14,.35) 70%,rgba(5,7,14,.15))}
+.logo{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#fff}
+.top{font-family:Orbitron;font-weight:800;letter-spacing:.5em;color:#3de0ff;text-shadow:0 0 18px #3de0ff}
+.main{font-family:Orbitron;font-weight:900;line-height:1;letter-spacing:.06em;text-shadow:0 0 10px #fff,0 0 40px #ffd23f,0 0 90px #ff8a00}
+.sub{font-family:Rajdhani;font-weight:700;letter-spacing:.18em;color:#ffd23f;text-transform:uppercase;text-shadow:0 0 12px rgba(0,0,0,.9)}
+</style>
+<!-- Store artwork composer: copy into public/ with ipad_1..4 screenshots, open ?w=&h=, screenshot #a -->
+<div id="a" class="art"><div class="strip"><div style="background-image:url(ipad_1_neon.png)"></div><div style="background-image:url(ipad_2_modern.png)"></div><div style="background-image:url(ipad_3_desert.png)"></div><div style="background-image:url(ipad_4_pixel.png)"></div></div><div class="shade"></div>
+<div class="logo"><div class="top">NEON</div><div class="main">TANKS</div><div class="sub">Arena Battle · up to 8 players online</div></div></div>
+<script>
+const q=new URLSearchParams(location.search), W=+q.get('w'), H=+q.get('h'), S=Math.min(W,H*1.6);
+const a=document.getElementById('a'); a.style.width=W+'px'; a.style.height=H+'px';
+document.querySelector('.top').style.fontSize=S*0.047+'px';
+document.querySelector('.main').style.fontSize=S*0.19+'px';
+document.querySelector('.sub').style.fontSize=S*0.036+'px';
+</script>

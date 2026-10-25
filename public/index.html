@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Neon Tanks</title>
+<meta name="description" content="Neon Tanks — a modern remake of the 1990 tank classic. Online co-op for up to 8 players, bosses, PvP modes and a level editor.">
+<meta name="theme-color" content="#05070e">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2305070e'/%3E%3Crect x='6' y='8' width='5' height='18' rx='1.5' fill='none' stroke='%23ffd23f' stroke-width='1.6'/%3E%3Crect x='21' y='8' width='5' height='18' rx='1.5' fill='none' stroke='%23ffd23f' stroke-width='1.6'/%3E%3Ccircle cx='16' cy='18' r='5' fill='%23ffd23f'/%3E%3Crect x='14.8' y='3' width='2.4' height='12' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-neon">
+<canvas id="bg"></canvas>
+
+<!-- MENU -->
+<section id="menu" class="screen active">
+  <div class="menu-wrap">
+    <header class="logo">
+      <div class="logo-top" id="logoTop">NEON</div>
+      <div class="logo-main">TANKS</div>
+      <div class="logo-sub">1990 classic · reborn for 2026 · up to 8 players online</div>
+    </header>
+
+    <div class="panel style-pick">
+      <label class="lbl">Visual style — changes the whole game</label>
+      <div id="stylePicker" class="styles"></div>
+    </div>
+
+    <div class="panel">
+      <label class="lbl">Callsign</label>
+      <input id="nameInput" maxlength="16" placeholder="Your name" autocomplete="off">
+      <label class="lbl">Tank class</label>
+      <div id="classPicker" class="classes"></div>
+      <div id="mapChip" class="chip hidden"></div>
+    </div>
+
+    <div class="panel actions">
+      <button id="btnSolo" class="btn">Play Solo</button>
+      <button id="btnCreate" class="btn primary">Create Online Room</button>
+      <div class="join-row">
+        <input id="joinCode" maxlength="5" placeholder="ROOM CODE" autocomplete="off">
+        <button id="btnJoin" class="btn">Join</button>
+      </div>
+      <div class="row2">
+        <button id="btnEditor" class="btn ghost">Level Editor</button>
+        <button id="btnMaps" class="btn ghost">Community Maps</button>
+      </div>
+    </div>
+
+    <details class="panel help">
+      <summary>How to play</summary>
+      <div class="help-grid">
+        <div><b>Move</b> WASD / Arrows · D-pad / stick · touch joystick</div>
+        <div><b>Fire</b> Space / Enter · gamepad A / RT</div>
+        <div><b>Ability</b> Shift · gamepad B / LT</div>
+        <div><b>Menu</b> Esc · all keys can be rebound in Controls</div>
+      </div>
+      <p>Protect your core. Flashing enemies drop power-ups: <span class="pu star">Power Up</span> <span class="pu helmet">Shield</span> <span class="pu grenade">Nuke</span> <span class="pu shovel">Fortify</span> <span class="pu clock">Freeze</span> <span class="pu tank">+1 Life</span>. Stars stack: faster shells → double shot → steel-piercing. Shooting a teammate freezes them briefly, just like the original.</p>
+    </details>
+    <div class="settings">
+      <button id="btnFull" class="btn small full-btn">★ Full version</button>
+      <button id="btnRestore" class="btn small ghost hidden">Restore purchases</button>
+      <button id="btnControls" class="btn small ghost">⌨ Controls</button>
+      <label>Music <input type="range" id="volMusic" min="0" max="0.6" step="0.02" value="0.22"></label>
+      <label>SFX <input type="range" id="volSfx" min="0" max="1" step="0.05" value="0.5"></label>
+    </div>
+    <div class="menu-links"><a href="support.html">Support</a> · <a href="privacy.html">Privacy</a></div>
+  </div>
+</section>
+
+<!-- LOBBY -->
+<section id="lobby" class="screen">
+  <div class="lobby-wrap">
+    <div class="lobby-head">
+      <button id="btnLeaveLobby" class="btn ghost small">← Leave</button>
+      <div class="room-info">
+        <div id="roomLabel" class="room-label">ROOM</div>
+        <div id="roomCode" class="room-code">—</div>
+      </div>
+      <button id="btnCopyLink" class="btn small">Copy invite link</button>
+    </div>
+    <div class="lobby-grid">
+      <div class="panel">
+        <h3>Players <span id="playerCount">1/8</span></h3>
+        <div id="slots" class="slots"></div>
+        <div id="specList" class="spec-list hidden"></div>
+        <div id="specNote" class="spec-note hidden">
+          <span>Room is full — you're <b>spectating</b>.</span>
+          <button id="btnTakeSlot" class="btn small primary">Join as player</button>
+        </div>
+        <div id="myClassBlock">
+          <label class="lbl">Your class</label>
+          <div id="classPicker2" class="classes compact"></div>
+          <div class="p2-block">
+            <button id="btnAddP2" class="btn small ghost">＋ Add Player 2 on this keyboard</button>
+            <div id="p2Panel" class="hidden">
+              <div class="p2-head"><label class="lbl">Player 2 (same keyboard / 2nd gamepad)</label><button id="btnRemoveP2" class="btn small ghost">Remove</button></div>
+              <input id="p2Name" maxlength="16" placeholder="Player 2 name">
+              <div id="classPickerP2" class="classes compact"></div>
+              <div id="p2Keys" class="muted small-note"></div>
+            </div>
+          </div>
+          <div class="lobby-extras">
+            <button id="btnControls2" class="btn small ghost">⌨ Customize controls</button>
+            <label>Style <select id="themeSel2" class="theme-sel"></select><span class="style-by-host muted hidden">set by host</span><span class="style-for-all muted hidden">applies to everyone</span></label>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Mission</h3>
+        <div id="modePicker" class="modes"></div>
+        <label class="lbl">Map</label>
+        <div class="map-row">
+          <div id="mapName" class="map-name">Procedural — new map every stage</div>
+          <button id="btnPickMap" class="btn small ghost">Browse</button>
+          <button id="btnClearMap" class="btn small ghost hidden">✕</button>
+        </div>
+        <div class="map-opts">
+          <label>Size <select id="sizeSel"><option value="auto">Auto</option><option value="S">Small 32×20</option><option value="M">Medium 48×28</option><option value="L">Large 64×36</option></select></label>
+          <label>Conditions <select id="atmoSel"><option value="default">Map default</option><option value="clear">Clear day</option><option value="night">Night</option><option value="fog">Fog</option></select></label>
+        </div>
+        <label id="zoneRow" class="toggle hidden"><input type="checkbox" id="zoneToggle"> Shrinking zone (forces everyone to the centre)</label>
+        <label class="lbl">Difficulty</label>
+        <div id="diffPicker" class="diffs"></div>
+        <label id="botsRow" class="toggle hidden"><input type="checkbox" id="botsToggle" checked> <span id="botsLabel">Fill teams with AI bots</span></label>
+        <button id="btnStart" class="btn primary big">Start Mission</button>
+        <div id="waitHost" class="wait hidden">Waiting for the host to start…</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- GAME -->
+<section id="game" class="screen">
+  <canvas id="view"></canvas>
+  <div id="hudTop" class="hud-top">
+    <div id="hudLeft" class="hud-left"></div>
+    <div id="hudCenter" class="hud-center"></div>
+    <div class="hud-right"><button id="btnJoinPlay" class="btn small primary hidden">Join game</button><span id="netBadge" class="badge hidden"></span><button id="btnPause" class="btn small ghost">☰</button></div>
+  </div>
+  <div id="bossBar" class="boss-bar hidden"><div class="boss-label">TITAN</div><div class="boss-track"><div id="bossFill"></div></div></div>
+  <div id="banner" class="banner"><div id="bannerText"></div><div id="bannerSub"></div></div>
+  <div id="hudBottom" class="hud-bottom"></div>
+  <div id="touch" class="touch hidden">
+    <div class="stick"><div class="knob"></div></div>
+    <div class="tbtns"><div class="tabil">ABL</div><div class="tfire">FIRE</div></div>
+  </div>
+  <div id="pauseMenu" class="overlay hidden">
+    <div class="panel center">
+      <h2>Paused</h2>
+      <p id="pauseNote" class="muted"></p>
+      <button id="btnResume" class="btn primary">Resume</button>
+      <button id="btnControls3" class="btn ghost">Controls</button>
+      <label class="pause-style">Visual style <select id="themeSel3" class="theme-sel"></select><span class="style-by-host muted hidden">set by host</span><span class="style-for-all muted hidden">applies to everyone</span></label>
+      <button id="btnQuit" class="btn ghost">Leave game</button>
+    </div>
+  </div>
+  <div id="endMenu" class="overlay hidden">
+    <div class="panel center wide">
+      <h2 id="endTitle">GAME OVER</h2>
+      <p id="endSub" class="muted"></p>
+      <table id="endTable" class="results"></table>
+      <div id="endHost" class="row2">
+        <button id="btnAgain" class="btn primary">Play again</button>
+        <button id="btnToLobby" class="btn ghost">Back to lobby</button>
+      </div>
+      <div id="endWait" class="wait hidden">Waiting for the host…</div>
+    </div>
+  </div>
+</section>
+
+<!-- EDITOR -->
+<section id="editor" class="screen">
+  <div class="ed-bar">
+    <button id="edBack" class="btn small ghost">← Menu</button>
+    <div id="edTools" class="ed-tools"></div>
+    <div class="ed-opts">
+      <label class="toggle"><input type="checkbox" id="edMirror" checked> Mirror</label>
+      <label class="toggle"><input type="checkbox" id="edBig" checked> 2×2 brush</label>
+      <select id="edLayout"><option value="C">Co-op (Classic/Survival)</option><option value="A">Team arena (Battle/CTF)</option><option value="D">Deathmatch</option><option value="U">Duel</option></select>
+      <select id="edSize"><option value="S">Small 32×20</option><option value="M" selected>Medium 48×28</option><option value="L">Large 64×36</option></select>
+    </div>
+    <div class="ed-actions">
+      <button id="edRandom" class="btn small ghost">Random</button>
+      <button id="edClear" class="btn small ghost">Clear</button>
+      <button id="edTest" class="btn small">Test play</button>
+      <button id="edSave" class="btn small primary">Save &amp; share</button>
+    </div>
+  </div>
+  <canvas id="edCanvas"></canvas>
+  <div class="ed-hint">Left click / drag to paint · right click to erase · spawn zones and the core are protected · teleporters link in pairs (use the 2×2 brush)</div>
+</section>
+
+<!-- MODALS -->
+<div id="mapsModal" class="overlay hidden">
+  <div class="panel modal">
+    <div class="modal-head"><h2>Maps</h2><div class="tabs"><button class="btn small tab sel" data-tab="builtin">Built-in pack</button><button class="btn small tab" data-tab="community">Community</button></div><button class="btn small ghost" data-close>✕</button></div>
+    <div id="mapsList" class="maps-list"><div class="muted">Loading…</div></div>
+  </div>
+</div>
+<div id="fullModal" class="overlay hidden">
+  <div class="panel modal small-modal full-card">
+    <div class="modal-head"><h2>Full version</h2><button class="btn small ghost" data-close>✕</button></div>
+    <p id="fullWhy" class="full-why"></p>
+    <ul class="full-list">
+      <li><b>All 6 modes</b>: adds Survival, Capture the Flag, Deathmatch and Duel</li>
+      <li><b>Hard &amp; Insane</b> difficulty</li>
+      <li><b>All 24 hand-made maps</b> (8 are free)</li>
+      <li><b>All 7 visual styles</b>, each with its own sounds and music</li>
+      <li><b>Heavy &amp; Engineer</b> tank classes</li>
+      <li><b>Publish your maps</b> to the community</li>
+    </ul>
+    <p class="muted small-note">One-time purchase. No ads, no subscription. When you host an online room, everyone in it plays with your unlocks.</p>
+    <p id="fullWeb" class="muted small-note hidden"></p>
+    <button id="fullBuy" class="btn primary hidden">Unlock everything</button>
+    <a id="fullStore" class="btn primary hidden" target="_blank" rel="noopener">Get it on the App Store</a>
+    <button id="fullRestore" class="btn ghost hidden">Restore purchases</button>
+    <div id="fullStatus" class="small-note full-status" role="status"></div>
+  </div>
+</div>
+<div id="saveModal" class="overlay hidden">
+  <div class="panel modal small-modal">
+    <div class="modal-head"><h2>Share your map</h2><button class="btn small ghost" data-close>✕</button></div>
+    <label class="lbl">Map name</label><input id="saveName" maxlength="40" placeholder="My fortress">
+    <button id="saveGo" class="btn primary">Publish map</button>
+    <div id="saveResult" class="save-result hidden"></div>
+  </div>
+</div>
+<div id="controlsModal" class="overlay hidden">
+  <div class="panel modal ctrl-modal">
+    <div class="modal-head"><h2>Controls</h2><button class="btn small ghost" data-close>✕</button></div>
+    <p class="muted small-note">Click a key slot, then press the new key. <b>Backspace</b> clears a slot, <b>Esc</b> cancels. When Player 2 is off, both sets control Player 1.</p>
+    <div id="ctrlGrid" class="ctrl-grid"></div>
+    <p class="muted small-note">Gamepads: D-pad / left stick to move · A / RT fire · B / X / LT ability. First gamepad = Player 1, second = Player 2.</p>
+    <div class="row2"><button id="ctrlReset" class="btn ghost">Reset to defaults</button><button class="btn primary" data-close>Done</button></div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+<div id="rotateHint" class="rotate-hint">Rotate your device for the best view</div>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>

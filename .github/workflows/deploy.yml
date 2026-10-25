@@ -1,0 +1,28 @@
+name: Test and deploy website
+on:
+  push: { branches: [main] }
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Tests use a stand-in store and block the real database; nothing is written anywhere.
+      - run: npx playwright test
+        env: { CI: '1' }
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Netlify build hook
+        env: { HOOK: '${{ secrets.NETLIFY_BUILD_HOOK }}' }
+        run: |
+          if [ -z "$HOOK" ]; then echo "::warning::NETLIFY_BUILD_HOOK secret not set; skipping deploy"; exit 0; fi
+          curl -fsS -X POST -d '{}' "$HOOK" > /dev/null && echo "Netlify build triggered"

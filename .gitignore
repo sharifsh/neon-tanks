@@ -1,0 +1,11 @@
+node_modules/
+test-results/
+playwright-report/
+ios/App/build/
+ios/DerivedData/
+android/.gradle/
+android/app/build/
+android/build/
+*.xcarchive
+*.ipa
+.DS_Store
