@@ -8,6 +8,11 @@
 <meta name="theme-color" content="#05070e">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2305070e'/%3E%3Crect x='6' y='8' width='5' height='18' rx='1.5' fill='none' stroke='%23ffd23f' stroke-width='1.6'/%3E%3Crect x='21' y='8' width='5' height='18' rx='1.5' fill='none' stroke='%23ffd23f' stroke-width='1.6'/%3E%3Ccircle cx='16' cy='18' r='5' fill='%23ffd23f'/%3E%3Crect x='14.8' y='3' width='2.4' height='12' fill='%23fff'/%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Neon Tanks">
 <link rel="stylesheet" href="fonts.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -138,12 +143,14 @@
   <div id="hudTop" class="hud-top">
     <div id="hudLeft" class="hud-left"></div>
     <div id="hudCenter" class="hud-center"></div>
-    <div class="hud-right"><button id="btnJoinPlay" class="btn small primary hidden">Join game</button><span id="netBadge" class="badge hidden"></span><button id="btnPause" class="btn small ghost">☰</button></div>
+    <div class="hud-right"><button id="btnJoinPlay" class="btn small primary hidden">Join game</button><span id="netBadge" class="badge hidden"></span><button id="btnZoom" class="btn small ghost zoom-btn hidden" aria-label="Zoom"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path class="zv" d="M10.5 7.5v6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M7.5 10.5h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button><button id="btnPause" class="btn small ghost">☰</button></div>
   </div>
   <div id="bossBar" class="boss-bar hidden"><div class="boss-label">TITAN</div><div class="boss-track"><div id="bossFill"></div></div></div>
   <div id="banner" class="banner"><div id="bannerText"></div><div id="bannerSub"></div></div>
   <div id="hudBottom" class="hud-bottom"></div>
   <div id="touch" class="touch hidden">
+    <div class="tdeck"></div>
+    <div class="tzone tzone-l"></div><div class="tzone tzone-r"></div>
     <div class="stick"><div class="knob"></div></div>
     <div class="tbtns"><div class="tabil">ABL</div><div class="tfire">FIRE</div></div>
   </div>
@@ -190,7 +197,7 @@
     </div>
   </div>
   <canvas id="edCanvas"></canvas>
-  <div class="ed-hint">Left click / drag to paint · right click to erase · spawn zones and the core are protected · teleporters link in pairs (use the 2×2 brush)</div>
+  <div class="ed-hint"><span class="mouse-only">Left click / drag to paint · right click to erase</span><span class="touch-only">Tap or drag to paint · erase with ✕</span> · spawn zones and the core are protected · teleporters link in pairs (use the 2×2 brush)</div>
 </section>
 
 <!-- MODALS -->
@@ -210,9 +217,10 @@
       <li><b>All 24 hand-made maps</b> (8 are free)</li>
       <li><b>All 7 visual styles</b>, each with its own sounds and music</li>
       <li><b>Heavy &amp; Engineer</b> tank classes</li>
+      <li><b>8-player online rooms</b> (free rooms hold 3)</li>
       <li><b>Publish your maps</b> to the community</li>
     </ul>
-    <p class="muted small-note">One-time purchase. No ads, no subscription. When you host an online room, everyone in it plays with your unlocks.</p>
+    <p class="muted small-note">One-time purchase. No ads, no subscription. When you host an online room, up to 8 can join and everyone plays with your unlocks.</p>
     <p id="fullWeb" class="muted small-note hidden"></p>
     <button id="fullBuy" class="btn primary hidden">Unlock everything</button>
     <a id="fullStore" class="btn primary hidden" target="_blank" rel="noopener">Get it on the App Store</a>

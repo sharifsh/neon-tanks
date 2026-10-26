@@ -45,6 +45,59 @@ const input = new Input();
 const isTouch = matchMedia('(hover: none)').matches || 'ontouchstart' in window;
 if (isTouch) { $('#touch').classList.remove('hidden'); input.bindTouch($('#touch')); }
 
+// ---------- phone layout ----------
+// Phones (short side up to 520 CSS px): slim HUD over the map and a zoomed view that follows your tank.
+// The map's edges stay clear of the notch, the home indicator and the HUD. In portrait (website only)
+// the controls sit on a deck below the map.
+const ZOOM_ORDER = ['close', 'near', 'fit'];
+const ZOOM_NAMES = { close: 'Close view', near: 'Closer view', fit: 'Whole map' };
+let zoom = ZOOM_ORDER.includes(store.get('nt_zoom', 'close')) ? store.get('nt_zoom', 'close') : 'close';
+renderer.setZoom(zoom);
+const safeProbe = document.createElement('div');
+safeProbe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+document.body.appendChild(safeProbe);
+function safeArea() { const c = getComputedStyle(safeProbe), n = v => parseFloat(v) || 0; return { t: n(c.paddingTop), r: n(c.paddingRight), b: n(c.paddingBottom), l: n(c.paddingLeft) }; }
+const isCompact = () => Math.min(innerWidth, innerHeight) <= 520;
+function layoutGame() {
+  const compact = isCompact(), portrait = compact && innerHeight > innerWidth;
+  document.body.classList.toggle('compact', compact);
+  document.body.classList.toggle('portrait', portrait);
+  $('#btnZoom').classList.toggle('hidden', !compact);
+  if (!compact) { renderer.setFrame(null); return; }
+  const sa = safeArea(), top = Math.max(sa.t, $('#hudTop').getBoundingClientRect().bottom);
+  let bottom = sa.b;
+  const chips = $('#hudBottom');
+  if (chips.childElementCount) bottom = Math.max(bottom, innerHeight - chips.getBoundingClientRect().top + 2);
+  if (portrait && isTouch) bottom = Math.max(bottom, innerHeight - $('#touch .tdeck').getBoundingClientRect().top);
+  renderer.setFrame({ compact: true, top, bottom, left: sa.l, right: sa.r });
+}
+function setZoom(z, announce) {
+  zoom = z; store.set('nt_zoom', z); renderer.setZoom(z);
+  $('#btnZoom').classList.toggle('zout', ZOOM_ORDER[(ZOOM_ORDER.indexOf(z) + 1) % ZOOM_ORDER.length] === 'fit');
+  if (announce) toast(ZOOM_NAMES[z], 1200);
+}
+$('#btnZoom').onclick = () => setZoom(ZOOM_ORDER[(ZOOM_ORDER.indexOf(zoom) + 1) % ZOOM_ORDER.length], true);
+setZoom(zoom);
+// Phone browsers (not the app): go full screen on the first touch in a game so the address and navigation
+// bars don't take space. Works in Chrome on Android; Safari on iPhone has no full screen for web pages.
+let fsAsked = false;
+$('#game').addEventListener('touchend', () => {
+  if (fsAsked || Full.native || !isCompact()) return;
+  fsAsked = true;
+  const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!req || document.fullscreenElement || document.webkitFullscreenElement) return;
+  try { const r = req.call(el, { navigationUI: 'hide' }); if (r && r.catch) r.catch(() => {}); } catch (e) {}
+}, { passive: true });
+// Slower phones: if most frames run long for a few seconds, draw at a lower resolution (not below 1.5x).
+const perf = { n: 0, slow: 0 };
+function watchPerf(dt) {
+  if (document.hidden || S.paused || window.__noAdapt || renderer.dprCap <= 1.5 || (devicePixelRatio || 1) <= 1.5) return;
+  perf.n++; if (dt > 0.024) perf.slow++;
+  if (perf.n < 240) return;
+  if (perf.slow > 150) { renderer.setDprCap(Math.max(1.5, Math.min(devicePixelRatio, renderer.dprCap) - 0.75)); console.info('Neon Tanks: render scale lowered to', renderer.dprCap); }
+  perf.n = perf.slow = 0;
+}
+
 // ---------- toast ----------
 let toastT = 0;
 // links shared from the app must point at the website, not the app's local origin
@@ -54,6 +107,9 @@ const shareBase = () => (Full.native || !/^https?:$/.test(location.protocol) ? S
 const roomFull = () => (S.net && !S.isHost ? !!(S.lobby && S.lobby.full) : Full.owned);
 const canClass = c => classFree(c) || Full.owned || roomFull();
 const canTheme = t => themeFree(t) || Full.owned;
+// player slots in an online room: 3 when the host has the free version, 8 with the full version
+const roomCap = () => (roomFull() ? MAX_PLAYERS : FREE.players);
+const capMsg = () => S.isHost ? `Free rooms hold ${FREE.players} players. With the full version up to ${MAX_PLAYERS} can play in your room.` : `This room was made with the free version, so it holds ${FREE.players} players. Rooms hosted with the full version hold ${MAX_PLAYERS}.`;
 const lock = '<span class="lock" title="Full version">🔒</span>';
 function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
 
@@ -63,7 +119,7 @@ function show(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === name));
   input.enabled = name === 'game';
   $('#bg').style.display = name === 'game' || name === 'editor' ? 'none' : 'block';
-  if (name === 'game') renderer.resize();
+  if (name === 'game') { S.chipKey = ''; fsAsked = false; renderer.resetCamera(); layoutGame(); renderer.resize(); } else if (input.releaseTouch) input.releaseTouch();
   if (name === 'editor') editor.show();
 }
 
@@ -172,7 +228,7 @@ function leaveAll(msg) {
 function setP2(on) {
   if (on) {
     if (S.role === 'spectator') { toast('Spectators cannot add a second player'); return; }
-    if (S.isHost && playerCount() >= MAX_PLAYERS) { toast('No free slot for Player 2'); return; }
+    if (S.isHost && playerCount() >= roomCap()) { toast(S.online && !roomFull() ? `No free slot for Player 2 — free rooms hold ${FREE.players} players` : 'No free slot for Player 2'); return; }
   }
   S.p2.on = on; input.setP2(on);
   if (S.isHost) {
@@ -272,12 +328,14 @@ function renderLobby() {
   $('#roomLabel').textContent = S.online ? 'ROOM CODE' : 'OFFLINE';
   $('#roomCode').textContent = S.online ? S.code : 'SOLO';
   $('#btnCopyLink').classList.toggle('hidden', !S.online);
-  $('#playerCount').textContent = `${players.length}/${MAX_PLAYERS}`;
+  const cap = S.online ? roomCap() : MAX_PLAYERS;
+  $('#playerCount').textContent = `${players.length}/${cap}`;
   const slots = $('#slots'); slots.innerHTML = '';
   const pvp = MODES[L.mode].pvp && !MODES[L.mode].ffa;
   for (let i = 0; i < MAX_PLAYERS; i++) {
     const p = players[i];
     const d = document.createElement('div');
+    if (!p && i >= cap) { d.className = 'slot empty locked-slot'; d.innerHTML = '<span class="lock">🔒</span>Full version'; d.title = capMsg(); d.onclick = () => openFull(capMsg()); slots.appendChild(d); continue; }
     if (!p) { d.className = 'slot empty'; d.textContent = S.online ? 'open slot' : (i === 1 && !S.p2.on ? 'add Player 2 below' : '—'); slots.appendChild(d); continue; }
     d.className = 'slot';
     const color = pvp ? TEAM_MAIN[i % 2] : PLAYER_COLORS[i % 8];
@@ -290,8 +348,9 @@ function renderLobby() {
   $('#specList').innerHTML = `👁 Spectators (${specs.length}): ${specs.map(s => `<b>${esc(s.name)}</b>`).join(', ')}`;
   const spectating = S.role === 'spectator';
   $('#specNote').classList.toggle('hidden', !spectating);
-  $('#btnTakeSlot').disabled = players.length >= MAX_PLAYERS;
-  $('#btnTakeSlot').textContent = players.length >= MAX_PLAYERS ? 'No free slot yet' : 'Join as player';
+  $('#btnTakeSlot').disabled = players.length >= cap;
+  $('#btnTakeSlot').textContent = players.length >= cap ? 'No free slot yet' : 'Join as player';
+  $('#specNote span').innerHTML = !roomFull() && players.length >= cap ? `This free room holds ${FREE.players} players — you're <b>spectating</b>.` : `Room is full — you're <b>spectating</b>.`;
   $('#myClassBlock').classList.toggle('hidden', spectating);
   $('#btnAddP2').classList.toggle('hidden', S.p2.on);
   $('#p2Panel').classList.toggle('hidden', !S.p2.on);
@@ -346,7 +405,7 @@ $('#btnTakeSlot').onclick = requestPlay;
 $('#btnJoinPlay').onclick = requestPlay;
 function requestPlay() {
   if (S.isHost) {
-    if (playerCount() >= MAX_PLAYERS) { toast('No free slot'); return; }
+    if (playerCount() >= roomCap()) { toast('No free slot'); return; }
     S.role = 'player'; if (S.game) S.game.addPlayer({ id: S.me.id, name: S.me.name, cls: S.me.cls });
     renderLobby(); broadcastLobby();
   } else if (S.net) S.net.sendToHost({ y: 'play' }, true);
@@ -367,13 +426,13 @@ const hostHandlers = {
   peerJoin(peer) {
     const info = peer.info || {};
     const had = S.game && S.game.players.has(peer.id); // rejoining after host migration
-    const free = MAX_PLAYERS - playerCount();
+    const free = roomCap() - playerCount();
     const role = (had || free >= 1) && !info.spectate ? 'player' : 'spectator';
     const p2 = role === 'player' && info.p2 && (free >= 2 || (had && S.game.players.has(P2(peer.id)))) ? { name: String(info.p2.name || 'Player 2').slice(0, 16), cls: CLASSES[info.p2.cls] ? info.p2.cls : 'scout' } : null;
     S.peers.set(peer.id, { seq: -1, ev: [], lastSend: 0, lastRev: -1, mapRepeats: 0, lastFull: 0, role, p2 });
     if (!had) {
       if (S.game) addPeerPlayers(peer.id);
-      toast(role === 'spectator' ? `${peer.name} is spectating (room full)` : `${peer.name} joined`); sfx('spawn');
+      toast(role !== 'spectator' ? `${peer.name} joined` : !roomFull() && !info.spectate ? `${peer.name} is spectating — free rooms hold ${FREE.players} players` : `${peer.name} is spectating (room full)`, 3500); sfx('spawn');
     } else if (!p2 && S.game) S.game.removePlayer(P2(peer.id));
     if (info.p2 && !p2) S.net.sendTo(peer.id, { y: 'note', t: 'No free slot for your Player 2', p2off: true }, true);
     renderLobby(); broadcastLobby();
@@ -402,12 +461,12 @@ const hostHandlers = {
     } else if (m.y === 'p2') {
       if (!m.on) { hp.p2 = null; if (S.game) S.game.removePlayer(P2(from)); }
       else if (hp.p2) { hp.p2.name = String(m.name || 'Player 2').slice(0, 16); if (CLASSES[m.cls]) hp.p2.cls = m.cls; const gp = S.game && S.game.players.get(P2(from)); if (gp) gp.name = hp.p2.name; if (S.game) S.game.setClass(P2(from), hp.p2.cls); }
-      else if (hp.role === 'player' && playerCount() < MAX_PLAYERS) { hp.p2 = { name: String(m.name || 'Player 2').slice(0, 16), cls: CLASSES[m.cls] ? m.cls : 'scout' }; if (S.game) S.game.addPlayer({ id: P2(from), name: hp.p2.name, cls: hp.p2.cls }); }
+      else if (hp.role === 'player' && playerCount() < roomCap()) { hp.p2 = { name: String(m.name || 'Player 2').slice(0, 16), cls: CLASSES[m.cls] ? m.cls : 'scout' }; if (S.game) S.game.addPlayer({ id: P2(from), name: hp.p2.name, cls: hp.p2.cls }); }
       else S.net.sendTo(from, { y: 'note', t: 'No free slot for Player 2', p2off: true }, true);
       renderLobby(); broadcastLobby();
     } else if (m.y === 'play') {
       if (hp.role === 'player') return;
-      if (playerCount() >= MAX_PLAYERS) { S.net.sendTo(from, { y: 'note', t: 'Still full — wait for a free slot' }, true); return; }
+      if (playerCount() >= roomCap()) { S.net.sendTo(from, { y: 'note', t: roomFull() ? 'Still full — wait for a free slot' : `This free room holds ${FREE.players} players — wait for a free slot` }, true); return; }
       hp.role = 'player'; addPeerPlayers(from);
       renderLobby(); broadcastLobby();
     } else if (m.y === 'ping') S.net.sendTo(from, { y: 'pong', t: m.t });
@@ -500,7 +559,7 @@ const clientHandlers = {
       const wasSpec = S.role === 'spectator';
       S.role = (m.l.spectators || []).some(s => s.id === S.me.id) ? 'spectator' : 'player';
       if (wasSpec && S.role === 'player') toast('You joined the game!');
-      if (!wasSpec && S.role === 'spectator' && S.screen !== 'game') toast('Room is full — you are spectating');
+      if (!wasSpec && S.role === 'spectator' && S.screen !== 'game') toast(m.l.full ? 'Room is full — you are spectating' : `Free rooms hold ${FREE.players} players — you are spectating`, 3500);
       if (m.l.started && S.screen !== 'game') { S.endShown = false; show('game'); }
       else if (!m.l.started && S.screen === 'game') { $('#endMenu').classList.add('hidden'); S.snaps = []; S.checkpoint = null; show('lobby'); }
       if (S.screen === 'lobby') renderLobby();
@@ -543,7 +602,7 @@ async function becomeHost(oldId) {
     try {
       S.game = Game.deserialize(S.checkpoint);
       S.game.removePlayer(oldId); S.game.removePlayer(P2(oldId));
-      if (S.role === 'player' && !S.game.players.has(S.me.id) && playerCount() < MAX_PLAYERS) S.game.addPlayer({ id: S.me.id, name: S.me.name, cls: S.me.cls });
+      if (S.role === 'player' && !S.game.players.has(S.me.id) && playerCount() < roomCap()) S.game.addPlayer({ id: S.me.id, name: S.me.name, cls: S.me.cls });
       if (S.game.players.has(S.me.id)) S.role = 'player';
       S.game.setBanner('HOST MIGRATED', `${S.me.name} is now hosting`, 3);
       S.lobby.started = true; S.renderRev = -1; lastSim = performance.now(); simAcc = 0;
@@ -634,22 +693,25 @@ function updateHud(h, force) {
   } else $('#hudCenter').innerHTML = `<div class="enemy-count"><i></i>${h.left} enemies${h.freeze ? ' · <span style="color:#a98bff">FROZEN</span>' : ''}</div>`;
   const badge = $('#netBadge');
   const spectating = S.role === 'spectator';
-  $('#btnJoinPlay').classList.toggle('hidden', !(spectating && S.online && h.players.length < MAX_PLAYERS));
-  if (spectating) { badge.classList.remove('hidden'); badge.className = 'badge spec'; badge.textContent = `👁 SPECTATING · ${h.players.length}/${MAX_PLAYERS}`; }
+  $('#btnJoinPlay').classList.toggle('hidden', !(spectating && S.online && h.players.length < roomCap()));
+  if (spectating) { badge.classList.remove('hidden'); badge.className = 'badge spec'; badge.textContent = `👁 SPECTATING · ${h.players.length}/${roomCap()}`; }
   else if (S.online) {
     badge.classList.remove('hidden');
     if (S.isHost) { badge.className = 'badge'; badge.textContent = `HOST · ${h.players.length}P${lobbySpectators().length ? ' +' + lobbySpectators().length + '👁' : ''}`; }
     else { const relay = S.net && S.net.mode === 'relay'; badge.className = 'badge' + (relay ? ' relay' : ''); badge.textContent = `${relay ? 'RELAY' : 'P2P'} ${Math.round(S.rtt)}ms`; }
   } else badge.classList.add('hidden');
   const mine = localIds();
+  const mini = document.body.classList.contains('compact') && h.players.length > 3; // phones: other players shrink to colour + lives/kills
   $('#hudBottom').innerHTML = h.players.map(p => {
     const [id, name, color, lives, score, power, alive, cls, team, kills, cd] = p;
     const me = mine.has(id);
     const stars = '★'.repeat(power) + '<span style="opacity:.25">' + '★'.repeat(3 - power) + '</span>';
     const cdPct = me && cd > 0 ? Math.max(0, 100 - 100 * cd / CLASSES[cls].cd) : (me ? 100 : 0);
     const stat = pvp ? `<b>${kills}</b> K` : `♥<b>${lives}</b>`;
-    return `<div class="pchip${me ? ' me' : ''}${alive === 2 ? ' out' : ''}"><span class="bar" style="color:${color}"></span><span class="nm" style="color:${color}">${esc(name)}</span><span class="st">${stat} <span style="color:#ffd23f">${stars}</span> <span class="sc">${score}</span></span>${me ? `<span class="cd" style="width:${cdPct}%"></span>` : ''}</div>`;
+    return `<div class="pchip${me ? ' me' : mini ? ' mini' : ''}${alive === 2 ? ' out' : ''}"><span class="bar" style="color:${color}"></span><span class="nm" style="color:${color}">${esc(name)}</span><span class="st">${stat} <span class="stars" style="color:#ffd23f">${stars}</span> <span class="sc">${score}</span></span>${me ? `<span class="cd" style="width:${cdPct}%"></span>` : ''}</div>`;
   }).join('');
+  const chipKey = h.players.length + (mini ? 'm' : '') + innerWidth + 'x' + innerHeight;
+  if (chipKey !== S.chipKey) { S.chipKey = chipKey; layoutGame(); }
   if ((h.status === 'over' || h.status === 'win') && !S.endShown) showEnd(h);
   if (h.status !== 'over' && h.status !== 'win' && S.endShown) { S.endShown = false; $('#endMenu').classList.add('hidden'); }
 }
@@ -697,7 +759,7 @@ addEventListener('keydown', e => {
   if (!$('#controlsModal').classList.contains('hidden')) { $('#controlsModal').classList.add('hidden'); return; }
   if (S.screen === 'game' && !S.endShown) togglePause();
 });
-addEventListener('resize', () => { if (S.screen === 'game') renderer.resize(); resizeBg(); });
+addEventListener('resize', () => { if (S.screen === 'game') { layoutGame(); renderer.resize(); } resizeBg(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) setEngine(false); }); // rAF stops in background tabs
 
 // ---------- main render loop ----------
@@ -721,6 +783,7 @@ function frame(t) {
       updateHud(view.hud);
     } else renderer.render(null, dt);
     setEngine(driving, boost);
+    watchPerf(dt);
   } else { setEngine(false); if (S.screen !== 'editor') drawBg(dt); }
   requestAnimationFrame(frame);
 }
@@ -1039,4 +1102,4 @@ if (params.get('room')) {
   else { toast('Enter your callsign, pick a class and press Join', 4000); $('#nameInput').focus(); }
 }
 addEventListener('pointerdown', () => initAudio(), { once: true });
-window.__nt = S; window.__input = input; window.__applyTheme = applyTheme; window.__full = Full; // debug handles
+window.__nt = S; window.__input = input; window.__applyTheme = applyTheme; window.__full = Full; window.__r = renderer; // debug handles

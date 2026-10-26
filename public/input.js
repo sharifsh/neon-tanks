@@ -29,6 +29,14 @@ function loadBinds() {
 }
 
 const fresh = () => ({ dirKeys: [], fire: new Set(), abil: new Set() });
+// Stick angle -> one of 4 directions. Near a diagonal the current direction wins, so it doesn't flicker.
+const AXIS = [-Math.PI / 2, 0, Math.PI / 2, Math.PI];
+function dirOf(dx, dy, prev) {
+  const cand = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0);
+  if (prev < 0 || prev === cand) return cand;
+  let diff = Math.abs(Math.atan2(dy, dx) - AXIS[prev]); if (diff > Math.PI) diff = 2 * Math.PI - diff;
+  return diff < Math.PI / 4 + 0.2 ? prev : cand;
+}
 
 export class Input {
   constructor() {
@@ -86,25 +94,52 @@ export class Input {
     return { d, f, a };
   }
 
+  // Touch: put a thumb down anywhere on the left half and the stick appears under it (it follows the
+  // thumb if it slides too far). Anything on the right half fires; ABL is its own button.
   bindTouch(root) {
     const stick = root.querySelector('.stick'), knob = root.querySelector('.knob');
+    const left = root.querySelector('.tzone-l'), right = root.querySelector('.tzone-r');
     const fireBtn = root.querySelector('.tfire'), abBtn = root.querySelector('.tabil');
     let sid = null, cx = 0, cy = 0;
+    const fires = new Set();
+    const R = () => stick.offsetWidth / 2 || 60;
+    const place = (x, y) => {
+      const z = left.getBoundingClientRect(), o = root.getBoundingClientRect(), r = R();
+      cx = Math.max(z.left + r * 0.7, Math.min(z.right - r * 0.4, x)); cy = Math.max(z.top + r * 0.7, Math.min(z.bottom - r * 0.5, y));
+      stick.style.left = (cx - o.left - r) + 'px'; stick.style.top = (cy - o.top - r) + 'px'; stick.style.bottom = 'auto';
+    };
     const move = t => {
-      const dx = t.clientX - cx, dy = t.clientY - cy, dist = Math.hypot(dx, dy), R = stick.clientWidth / 2;
-      const k = Math.min(1, dist / R);
-      knob.style.transform = `translate(${dx / (dist || 1) * k * R * 0.6}px, ${dy / (dist || 1) * k * R * 0.6}px)`;
-      this.touch.d = dist < R * 0.25 ? -1 : (Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0));
+      let dx = t.clientX - cx, dy = t.clientY - cy, dist = Math.hypot(dx, dy);
+      const r = R();
+      if (dist > r * 1.15) { const k = (dist - r * 1.15) / dist; place(cx + dx * k, cy + dy * k); dx = t.clientX - cx; dy = t.clientY - cy; dist = Math.hypot(dx, dy); }
+      const k = Math.min(1, dist / r);
+      knob.style.transform = `translate(${dx / (dist || 1) * k * r * 0.6}px, ${dy / (dist || 1) * k * r * 0.6}px)`;
+      this.touch.d = dist < Math.max(9, r * 0.2) ? -1 : dirOf(dx, dy, this.touch.d);
+      stick.dataset.d = this.touch.d;
     };
-    stick.addEventListener('touchstart', e => { const t = e.changedTouches[0]; sid = t.identifier; const r = stick.getBoundingClientRect(); cx = r.left + r.width / 2; cy = r.top + r.height / 2; move(t); e.preventDefault(); }, { passive: false });
-    stick.addEventListener('touchmove', e => { for (const t of e.changedTouches) if (t.identifier === sid) move(t); e.preventDefault(); }, { passive: false });
-    const end = e => { for (const t of e.changedTouches) if (t.identifier === sid) { sid = null; this.touch.d = -1; knob.style.transform = ''; } };
-    stick.addEventListener('touchend', end); stick.addEventListener('touchcancel', end);
-    const hold = (el, key) => {
-      el.addEventListener('touchstart', e => { this.touch[key] = true; el.classList.add('on'); e.preventDefault(); }, { passive: false });
-      const up = () => { this.touch[key] = false; el.classList.remove('on'); };
-      el.addEventListener('touchend', up); el.addEventListener('touchcancel', up);
+    const start = e => {
+      if (sid !== null) return;
+      const t = e.changedTouches[0]; sid = t.identifier;
+      place(t.clientX, t.clientY); stick.classList.add('active'); move(t); e.preventDefault();
     };
-    hold(fireBtn, 'f'); hold(abBtn, 'a');
+    const drag = e => { for (const t of e.changedTouches) if (t.identifier === sid) move(t); e.preventDefault(); };
+    const end = e => {
+      for (const t of e.changedTouches) if (t.identifier === sid) {
+        sid = null; this.touch.d = -1; knob.style.transform = ''; stick.classList.remove('active');
+        stick.style.left = stick.style.top = stick.style.bottom = ''; delete stick.dataset.d;
+      }
+    };
+    left.addEventListener('touchstart', start, { passive: false });
+    left.addEventListener('touchmove', drag, { passive: false });
+    left.addEventListener('touchend', end); left.addEventListener('touchcancel', end);
+    const fireSet = () => { this.touch.f = fires.size > 0; fireBtn.classList.toggle('on', this.touch.f); };
+    right.addEventListener('touchstart', e => { for (const t of e.changedTouches) fires.add(t.identifier); fireSet(); e.preventDefault(); }, { passive: false });
+    right.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+    const fireUp = e => { for (const t of e.changedTouches) fires.delete(t.identifier); fireSet(); };
+    right.addEventListener('touchend', fireUp); right.addEventListener('touchcancel', fireUp);
+    abBtn.addEventListener('touchstart', e => { this.touch.a = true; abBtn.classList.add('on'); e.preventDefault(); }, { passive: false });
+    const abUp = () => { this.touch.a = false; abBtn.classList.remove('on'); };
+    abBtn.addEventListener('touchend', abUp); abBtn.addEventListener('touchcancel', abUp);
+    this.releaseTouch = () => { sid = null; fires.clear(); this.touch = { d: -1, f: false, a: false }; knob.style.transform = ''; stick.classList.remove('active'); stick.style.left = stick.style.top = stick.style.bottom = ''; fireBtn.classList.remove('on'); abBtn.classList.remove('on'); };
   }
 }

@@ -4,6 +4,10 @@ import { teleportPads } from './levels.js';
 import { THEMES, NEON, TAU, rgba, rr, hex, drawIcon, lighten } from './themes.js';
 
 const PU_COLORS = { star: '#ffd23f', helmet: '#3de0ff', grenade: '#ff4d5e', shovel: '#ff9b3d', clock: '#a98bff', tank: '#3dff8b' };
+// Phone view: how many map cells fit across the short side of the screen at each zoom level
+export const ZOOMS = { close: 22, near: 17, fit: 0 };
+const LAYER_BUDGET = 4.5e6; // max pixels per pre-rendered map layer when zoomed in (keeps phone memory in check)
+const AHEAD = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 const PU_LABEL = { star: 'POWER UP', helmet: 'SHIELD', grenade: 'NUKE', shovel: 'FORTIFY', clock: 'FREEZE', tank: '+1 LIFE' };
 // tank colours can be #rgb or #rrggbb; anything else falls back to a neutral cyan
 const tint = (c, a) => /^#[0-9a-f]{6}$/i.test(c) ? rgba(c, a) : /^#[0-9a-f]{3}$/i.test(c) ? rgba('#' + [...c.slice(1)].map(x => x + x).join(''), a) : `rgba(127,220,255,${a})`;
@@ -28,24 +32,58 @@ export class Renderer {
     this.shake = 0; this.time = 0; this.grid = new Uint8Array(W * H); this.gridStr = '';
     this.trackPos = new Map(); this.decalFade = 0; this.weather = [];
     this.theme = current;
+    this.frameInfo = null; this.frameKey = ''; this.zoom = 'close'; this.dprCap = 3;
+    this.cam = { x: 0, y: 0, s: 0, lx: 0, ly: 0, init: false }; this.baseSeen = new Map();
     this.resize();
   }
 
   setTheme(id) { this.theme = setGlobalTheme(id); this.particles = []; this.lights = []; this.resize(); }
   cache(key, fn) { if (!this.caches.has(key)) this.caches.set(key, fn()); return this.caches.get(key); }
 
+  // Phones: main.js reports the HUD and safe-area sizes (CSS px) so the map is kept clear of them at its edges.
+  setFrame(f) {
+    const key = f ? [f.compact ? 1 : 0, f.top, f.bottom, f.left, f.right].map(v => Math.round(v)).join() : '';
+    if (key === this.frameKey) return;
+    this.frameKey = key; this.frameInfo = f; this.relayout();
+  }
+  setZoom(z) { if (!(z in ZOOMS) || z === this.zoom) return; this.zoom = z; this.relayout(); }
+  setDprCap(d) { if (d === this.dprCap) return; this.dprCap = d; this.resize(); }
+  resetCamera() { this.cam.init = false; this.cam.lx = this.cam.ly = 0; this.baseSeen.clear(); }
+  relayout() { const cs = this.cs, c = this.compact; this.layout(); if (this.layerCs() !== cs || this.compact !== c) this.resize(); }
+
+  // Where the map may sit on screen (device px), the cell size that shows the whole map,
+  // and on phones the bigger cell size used while the view follows your tank.
+  layout() {
+    const k = this.scale, cw = this.canvas.width, ch = this.canvas.height, f = this.frameInfo;
+    this.compact = !!(f && f.compact);
+    this.rect = this.compact
+      ? { l: f.left * k, t: f.top * k, r: cw - f.right * k, b: ch - f.bottom * k }
+      : { l: 14 * k, t: 58 * k, r: cw - 14 * k, b: ch - 64 * k };
+    const rw = Math.max(40, this.rect.r - this.rect.l), rh = Math.max(40, this.rect.b - this.rect.t);
+    this.fitScs = Math.max(4, Math.floor(Math.min(rw / W, rh / H)));
+    const across = this.compact ? ZOOMS[this.zoom] : 0;
+    this.zoomScs = across ? Math.max(this.fitScs, Math.round(Math.min(cw, ch) / across)) : this.fitScs;
+  }
+  // resolution of the pre-rendered map layers (zoomed views draw them scaled when a big map would use too much memory)
+  layerCs() {
+    if (this.theme.pixel) return 16;
+    if (this.zoomScs <= this.fitScs) return this.fitScs;
+    return Math.min(this.zoomScs, Math.max(this.fitScs, Math.floor(Math.sqrt(LAYER_BUDGET / (W * H)))));
+  }
+
   resize() {
     const th = this.theme;
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const dpr = Math.min(window.devicePixelRatio || 1, this.dprCap || 3);
     let cw = Math.floor(innerWidth * dpr), ch = Math.floor(innerHeight * dpr);
     const cap = 3840 * 2160 * 1.05;
     if (cw * ch > cap) { const k = Math.sqrt(cap / (cw * ch)); cw = Math.floor(cw * k); ch = Math.floor(ch * k); }
+    if (cw !== this.canvas.width || ch !== this.canvas.height || W !== this.mapW || H !== this.mapH) this.cam.init = false; // new screen or map: place the view at once (zoom changes glide)
     this.canvas.width = cw; this.canvas.height = ch;
     this.scale = cw / innerWidth;
-    const top = 58 * this.scale, bottom = 64 * this.scale, pad = 14 * this.scale;
-    this.scs = Math.max(4, Math.floor(Math.min((cw - pad * 2) / W, (ch - top - bottom) / H))); // screen cell size
-    this.ox = Math.floor((cw - this.scs * W) / 2); this.oy = Math.floor(top + (ch - top - bottom - this.scs * H) / 2);
-    this.cs = th.pixel ? 16 : this.scs; // world cell size
+    this.layout();
+    this.scs = this.fitScs; // screen cell size (the camera changes it on phones)
+    this.ox = Math.floor((this.rect.l + this.rect.r - this.scs * W) / 2); this.oy = Math.floor((this.rect.t + this.rect.b - this.scs * H) / 2);
+    this.cs = this.layerCs(); // world cell size
     const cs = this.cs;
     this.world = th.pixel ? mk(W * cs, H * cs) : null;
     this.sprites.clear();
@@ -57,7 +95,7 @@ export class Renderer {
     this.vignette = mk(cw, ch);
     const vg = this.vignette.getContext('2d');
     const gr = vg.createRadialGradient(cw / 2, ch / 2, Math.min(cw, ch) * 0.35, cw / 2, ch / 2, Math.max(cw, ch) * 0.75);
-    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, `rgba(0,0,0,${th.vignette ?? 0.55})`);
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, `rgba(0,0,0,${(th.vignette ?? 0.55) * (this.compact ? 0.55 : 1)})`); // lighter on phones, where the map reaches the screen edges
     vg.fillStyle = gr; vg.fillRect(0, 0, cw, ch);
     this.weather = [];
     if (th.weather) for (let i = 0; i < (th.weather === 'snow' ? 260 : 140); i++) this.weather.push({ x: Math.random() * W, y: Math.random() * H, z: 0.4 + Math.random() * 0.6, p: Math.random() * TAU });
@@ -264,15 +302,16 @@ export class Renderer {
     this.decalFade += dt;
     if (this.decalFade > 0.5) { this.decalFade = 0; const d = this.decals.getContext('2d'); d.globalCompositeOperation = 'destination-out'; d.fillStyle = `rgba(0,0,0,${th.fx.trackFade ?? 0.04})`; d.fillRect(0, 0, this.decals.width, this.decals.height); d.globalCompositeOperation = 'source-over'; }
 
+    this.updateCamera(view, dt, localId);
     this.shake = Math.max(0, this.shake - dt * 2.5);
-    const shS = this.shake * this.scs * 0.45, sx = (Math.random() - 0.5) * shS, sy = (Math.random() - 0.5) * shS;
+    const shS = this.shake * Math.min(this.scs, this.fitScs * 1.5) * 0.45, sx = (Math.random() - 0.5) * shS, sy = (Math.random() - 0.5) * shS;
     // frame (screen space)
     main.save(); main.translate(this.ox + sx, this.oy + sy); th.frame(main, this.scs); main.restore();
 
     // world pass
     let g, cs = this.cs;
     if (this.world) { g = this.world.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.imageSmoothingEnabled = false; g.clearRect(0, 0, this.world.width, this.world.height); }
-    else { g = main; g.save(); g.translate(this.ox + sx, this.oy + sy); }
+    else { g = main; g.save(); g.translate(this.ox + sx, this.oy + sy); if (this.scs !== cs) g.scale(this.scs / cs, this.scs / cs); }
     g.drawImage(this.floor, 0, 0);
     g.drawImage(this.decals, 0, 0);
     g.drawImage(this.tiles, 0, 0);
@@ -322,6 +361,99 @@ export class Renderer {
     main.setTransform(1, 0, 0, 1, 0, 0);
     main.drawImage(this.vignette, 0, 0);
     if (view.hud && view.hud.freeze) { main.fillStyle = 'rgba(80,160,255,0.06)'; main.fillRect(0, 0, cw, ch); }
+    if (this.compact) this.drawOffscreen(main, view, localId);
+  }
+
+  // ---------- camera ----------
+  // Whole map on big screens. On phones the view zooms in and follows your tank (both tanks when two
+  // people share the device), looks a little ahead while you drive, holds still while you respawn and
+  // shows the whole map when you are only watching.
+  updateCamera(view, dt, localId) {
+    const r = this.rect, rw = r.r - r.l, rh = r.b - r.t, cam = this.cam;
+    let ts = this.fitScs, tx = W / 2, ty = H / 2;
+    if (this.compact && this.zoomScs > this.fitScs) {
+      const has = id => !!(id && localId && (localId.has ? localId.has(id) : id === localId));
+      const mine = view.tk.filter(t => has(t[10]));
+      if (mine.length) {
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const t of mine) { const x = t[1] / 100 + t[4] / 2, y = t[2] / 100 + t[4] / 2; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+        ts = Math.max(this.fitScs, Math.min(this.zoomScs, rw / (x1 - x0 + 16), rh / (y1 - y0 + 10)));
+        let lx = 0, ly = 0;
+        if (mine.length === 1 && (mine[0][7] & 1)) { const d = AHEAD[mine[0][3]] || [0, 0]; lx = d[0] * rw / ts * 0.13; ly = d[1] * rh / ts * 0.13; }
+        const la = 1 - Math.exp(-dt * 1.5); cam.lx += (lx - cam.lx) * la; cam.ly += (ly - cam.ly) * la;
+        tx = (x0 + x1) / 2 + cam.lx; ty = (y0 + y1) / 2 + cam.ly;
+      } else {
+        const ps = (view.hud && view.hud.players) || [];
+        if (cam.init && ps.some(p => has(p[0]) && p[6] === 0)) { tx = cam.x; ty = cam.y; ts = Math.max(cam.s, this.fitScs); } // respawning: hold the view
+        cam.lx = cam.ly = 0;
+      }
+    }
+    const m = 0.35; // a sliver of the map frame stays visible at the edges
+    const fitC = (c, s, span, n) => { const v = span / s; return v >= n + 2 * m ? n / 2 : Math.max(v / 2 - m, Math.min(n - v / 2 + m, c)); };
+    tx = fitC(tx, ts, rw, W); ty = fitC(ty, ts, rh, H);
+    if (!cam.init) { cam.x = tx; cam.y = ty; cam.s = ts; cam.init = true; }
+    else {
+      const a = 1 - Math.exp(-dt * 6), az = 1 - Math.exp(-dt * 4);
+      cam.s = Math.abs(ts - cam.s) < 0.05 ? ts : cam.s + (ts - cam.s) * az;
+      cam.x += (tx - cam.x) * a; cam.y += (ty - cam.y) * a;
+      cam.x = fitC(cam.x, cam.s, rw, W); cam.y = fitC(cam.y, cam.s, rh, H);
+    }
+    this.scs = cam.s;
+    this.ox = Math.round((r.l + r.r) / 2 - cam.x * cam.s); this.oy = Math.round((r.t + r.b) / 2 - cam.y * cam.s);
+  }
+
+  // Phones: small arrows at the screen edge for what the zoomed view can't show (your base, other tanks, flags).
+  drawOffscreen(g, view, localId) {
+    const r = this.rect, s = this.scs, k = this.scale;
+    const vx0 = (r.l - this.ox) / s, vy0 = (r.t - this.oy) / s, vx1 = (r.r - this.ox) / s, vy1 = (r.b - this.oy) / s;
+    if (vx0 <= 0.01 && vy0 <= 0.01 && vx1 >= W - 0.01 && vy1 >= H - 0.01) return;
+    const hud = view.hud || {}, mode = hud.mode, ffa = mode === 'deathmatch' || mode === 'duel', teams = mode === 'battle' || mode === 'ctf';
+    const has = id => !!(id && localId && (localId.has ? localId.has(id) : id === localId));
+    const me = view.tk.find(t => has(t[10])) || null;
+    const myTeam = me ? me[11] : (((hud.players || []).find(p => has(p[0])) || [])[8]);
+    const items = [];
+    for (const b of view.bs || []) {
+      if (!b[3]) continue;
+      const key = b[0] + ',' + b[1], seen = this.baseSeen.get(key);
+      if (seen && b[4] < seen.hp) seen.alert = this.time + 3;
+      this.baseSeen.set(key, { hp: b[4], alert: seen ? seen.alert : 0 });
+      const own = !teams || b[2] === myTeam;
+      items.push({ x: b[0] + 1, y: b[1] + 1, c: teams ? TEAM_MAIN[b[2]] : '#ffd23f', kind: own ? 'base' : 'enemyBase', alert: own && seen && seen.alert > this.time });
+    }
+    for (const t of view.tk) {
+      if (has(t[10]) || (t[7] & 4)) continue;
+      const friend = !ffa && (teams ? t[11] === myTeam : t[5][0] === 'p');
+      items.push({ x: t[1] / 100 + t[4] / 2, y: t[2] / 100 + t[4] / 2, c: friend ? t[6] : ffa ? t[6] : '#ff4d5e', kind: friend ? 'friend' : 'enemy' });
+    }
+    for (const f of view.fl || []) if (!f[3]) items.push({ x: f[1], y: f[2], c: TEAM_MAIN[f[0]], kind: 'flag' });
+    for (const u of view.pu || []) items.push({ x: u[2] + 1, y: u[3] + 1, c: PU_COLORS[u[1]] || '#fff', kind: 'pickup' });
+    const M = 15 * k, cx = (r.l + r.r) / 2, cy = (r.t + r.b) / 2, hw = (r.r - r.l) / 2 - M, hh = (r.b - r.t) / 2 - M;
+    g.save();
+    for (const it of items) {
+      if (it.x > vx0 && it.x < vx1 && it.y > vy0 && it.y < vy1) continue;
+      const dx = this.ox + it.x * s - cx, dy = this.oy + it.y * s - cy;
+      const t = Math.min(hw / Math.max(1e-6, Math.abs(dx)), hh / Math.max(1e-6, Math.abs(dy)));
+      const ex = cx + dx * t, ey = cy + dy * t, ang = Math.atan2(dy, dx);
+      const dist = Math.max(it.x - vx1, vx0 - it.x, it.y - vy1, vy0 - it.y, 0);
+      const big = it.kind === 'base' || it.kind === 'enemyBase' || it.kind === 'flag' || it.kind === 'pickup';
+      g.globalAlpha = big ? 0.95 : Math.max(0.4, 0.95 - dist / 40);
+      g.translate(ex, ey); g.rotate(ang);
+      const z = (big ? 9 : it.kind === 'friend' ? 7 : 6) * k;
+      g.beginPath(); g.moveTo(z * 1.25, 0); g.lineTo(-z * 0.7, -z * 0.85); g.lineTo(-z * 0.35, 0); g.lineTo(-z * 0.7, z * 0.85); g.closePath();
+      g.fillStyle = it.alert && Math.floor(this.time * 6) % 2 ? '#ff2a2a' : it.c; g.fill();
+      g.lineWidth = 1.5 * k; g.strokeStyle = 'rgba(0,0,0,0.7)'; g.stroke();
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      if (big) { // a small badge next to the arrow: the base or flag being pointed at
+        const bx = ex - Math.cos(ang) * 14 * k, by = ey - Math.sin(ang) * 14 * k, R = 7 * k;
+        g.beginPath(); g.arc(bx, by, R, 0, TAU); g.fillStyle = 'rgba(0,0,0,0.65)'; g.fill();
+        g.lineWidth = 2 * k; g.strokeStyle = it.alert && Math.floor(this.time * 6) % 2 ? '#ff2a2a' : it.c; g.stroke();
+        g.fillStyle = it.c;
+        if (it.kind === 'pickup') { g.beginPath(); g.moveTo(bx, by - R * 0.6); g.lineTo(bx + R * 0.5, by); g.lineTo(bx, by + R * 0.6); g.lineTo(bx - R * 0.5, by); g.closePath(); g.fill(); }
+        else if (it.kind === 'flag') { g.fillRect(bx - R * 0.35, by - R * 0.55, R * 0.12 * 2, R * 1.1); g.beginPath(); g.moveTo(bx - R * 0.15, by - R * 0.55); g.lineTo(bx + R * 0.55, by - R * 0.3); g.lineTo(bx - R * 0.15, by - R * 0.05); g.fill(); }
+        else { g.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, q = i % 2 ? R * 0.28 : R * 0.65; g.lineTo(bx + Math.cos(a) * q, by + Math.sin(a) * q); } g.closePath(); g.fill(); }
+      }
+    }
+    g.restore();
   }
 
   drawBases(g, view, mode) {
@@ -406,7 +538,7 @@ export class Renderer {
   drawLabels(g, view, cs, dt) {
     const lab = this.theme.label || NEON.label;
     if (view.names) {
-      g.font = lab.font.replace('{s}', Math.max(9, cs * 0.5).toFixed(1)); g.textAlign = 'center'; g.textBaseline = 'top';
+      g.font = lab.font.replace('{s}', Math.max((this.compact ? 10 : 9) * this.scale, cs * 0.5).toFixed(1)); g.textAlign = 'center'; g.textBaseline = 'top';
       for (const tk of view.tk) {
         const [, x100, y100, , size, , color, flags, , , owner] = tk;
         if (!owner || (flags & 4)) continue;

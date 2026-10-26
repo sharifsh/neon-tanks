@@ -9,7 +9,7 @@ export const PRODUCT_ID = 'com.sharifsh.neontanks.full';
 export const APP_STORE_URL = '';
 export const PLAY_STORE_URL = '';
 // Public website (used for invite/map links from inside the app, privacy and support pages)
-export const SITE_URL = 'https://neon-tanks-sharif.netlify.app';
+export const SITE_URL = 'https://tanksarenabattle.com';
 
 // What the free version includes. Everything else needs the Full unlock.
 export const FREE = {
@@ -19,6 +19,7 @@ export const FREE = {
   classes: ['striker', 'scout'],
   maps: ['b:fortress-gate', 'b:river-crossing', 'b:minefield', 'b:frozen-lake', 'b:twin-rivers', 'b:crossfire', 'b:mirror-keep', 'b:portal-wars'],
   shareMaps: false, // editing and test play are free; publishing to the community needs Full
+  players: 3, // online rooms hosted with the free version hold 3 players (full version: 8); others can still watch as spectators
 };
 
 const CACHE_KEY = 'nt_full';

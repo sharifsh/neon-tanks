@@ -181,4 +181,41 @@ test.describe('online rooms follow the host’s copy', () => {
     expect(await guest.evaluate(() => window.__nt.me.cls)).toBe('striker');
     await ctx.close();
   });
+
+  for (const [owned, cap] of [[false, 3], [true, 8]]) {
+    test(`room size: ${owned ? 'full' : 'free'} host allows ${cap} players`, async ({ browser }) => {
+      test.setTimeout(90000); // four browser pages talking to each other
+      const ctx = await browser.newContext();
+      const host = await ctx.newPage();
+      await open(host, { owned }, '/?fakenet=1');
+      await host.fill('#nameInput', 'Host'); await host.click('#btnCreate');
+      await expect(host.locator('#lobby')).toHaveClass(/active/);
+      const code = (await host.textContent('#roomCode')).trim();
+      const guests = [];
+      for (let n = 1; n <= 3; n++) {
+        const g = await ctx.newPage();
+        await open(g, { owned: false }, '/?fakenet=1');
+        await g.fill('#nameInput', 'Guest' + n); await g.fill('#joinCode', code); await g.click('#btnJoin');
+        await expect(g.locator('#lobby')).toHaveClass(/active/);
+        await expect.poll(() => host.evaluate(() => window.__nt.peers.size), { timeout: 15000 }).toBe(n);
+        guests.push(g);
+      }
+      await expect.poll(() => guests[2].evaluate(() => window.__nt.role), { timeout: 15000 }).toBe(owned ? 'player' : 'spectator');
+      await expect(host.locator('#playerCount')).toHaveText(owned ? '4/8' : '3/3');
+      await expect(host.locator('#slots .locked-slot')).toHaveCount(owned ? 0 : 5);
+      if (!owned) {
+        await expect(guests[2].locator('#specNote')).toBeVisible();
+        await expect(guests[2].locator('#specNote')).toContainText('free room holds 3');
+        // a locked slot explains the limit and offers the unlock
+        await host.locator('#slots .locked-slot').first().click();
+        await expect(host.locator('#fullWhy')).toContainText('Free rooms hold 3 players');
+        // when a player leaves, the spectator can take the free slot
+        await guests[0].close({ runBeforeUnload: true }); // lets the page say goodbye instead of waiting for a timeout
+        await expect(guests[2].locator('#btnTakeSlot')).toBeEnabled({ timeout: 30000 });
+        await guests[2].click('#btnTakeSlot');
+        await expect.poll(() => guests[2].evaluate(() => window.__nt.role), { timeout: 15000 }).toBe('player');
+      }
+      await ctx.close();
+    });
+  }
 });

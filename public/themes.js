@@ -841,7 +841,7 @@ function sparkleWater(g, cs, f) {
 // ---------- post effects ----------
 function grade(color, a, op = 'soft-light') { return (g, cw, ch) => { g.save(); g.globalCompositeOperation = op; g.fillStyle = rgba(color, a); g.fillRect(0, 0, cw, ch); g.restore(); }; }
 function tiltShift(g, cw, ch, r) {
-  const band = Math.floor(ch * 0.26), k = 7;
+  const band = Math.floor(ch * (r.compact ? 0.12 : 0.26)), k = 7; // phones: thin bands, the map fills the screen there
   const sw = Math.ceil(cw / k), sh = Math.ceil(band / k);
   const c = r.cache('tilt', () => { const x = document.createElement('canvas'); return x; });
   if (c.width !== sw || c.height !== sh) { c.width = sw; c.height = sh; }
