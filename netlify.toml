@@ -5,3 +5,8 @@
   for = "/*.js"
   [headers.values]
     Cache-Control = "public, max-age=300, must-revalidate"
+
+[[headers]]
+  for = "/*.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
