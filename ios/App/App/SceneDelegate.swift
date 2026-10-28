@@ -25,7 +25,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 /// The game's web view controller. Swipes that start at a screen edge (home indicator, Control Center,
 /// Notification Center) need a second swipe, so a thumb sliding off the stick or FIRE doesn't leave the game.
+/// (The home indicator itself is hidden through the SystemBars setting in capacitor.config.json.)
 class GameViewController: CAPBridgeViewController {
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { .all }
-    override var prefersHomeIndicatorAutoHidden: Bool { true }
 }

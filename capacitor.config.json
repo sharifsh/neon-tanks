@@ -3,10 +3,27 @@
   "appName": "Neon Tanks",
   "webDir": "public",
   "backgroundColor": "#05070e",
-  "ios": { "contentInset": "never", "backgroundColor": "#05070e", "scheme": "Neon Tanks" },
-  "android": { "backgroundColor": "#05070e" },
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#05070e",
+    "scheme": "Neon Tanks"
+  },
+  "android": {
+    "backgroundColor": "#05070e"
+  },
   "plugins": {
-    "SplashScreen": { "launchShowDuration": 900, "launchAutoHide": true, "backgroundColor": "#05070e", "showSpinner": false },
-    "NativePurchases": { "autoFinishTransactions": true }
+    "SplashScreen": {
+      "launchShowDuration": 900,
+      "launchAutoHide": true,
+      "backgroundColor": "#05070e",
+      "showSpinner": false
+    },
+    "NativePurchases": {
+      "autoFinishTransactions": true
+    },
+    "SystemBars": {
+      "hidden": true,
+      "style": "DARK"
+    }
   }
 }
