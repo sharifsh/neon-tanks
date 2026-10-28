@@ -452,7 +452,7 @@ body.compact .m-tools .btn { font-size: 14px; padding: 10px 8px; }
 /* styles: one swipeable row */
 body.compact .style-pick .styles { display: flex; overflow-x: auto; gap: 8px; scroll-snap-type: x proximity; padding-bottom: 2px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 body.compact .style-pick .styles::-webkit-scrollbar { display: none; }
-body.compact .style-pick .sty { flex: 0 0 104px; scroll-snap-align: start; }
+body.compact .style-pick .sty { flex: 0 0 calc((100% - 24px) / 3.4); min-width: 72px; scroll-snap-align: start; } /* a part of the 4th card peeks out: the strip scrolls */
 body.compact .sty canvas { height: 52px; }
 body.compact .sty .n { font-size: 13px; padding: 4px 7px 5px; }
 body.compact .style-pick .lbl { margin-bottom: 8px; }
@@ -504,6 +504,7 @@ body.compact .modal-head h2 { font-size: 22px; }
 body.compact .modal { max-height: 100%; }
 body.compact .maps-list { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 body.compact .classes .cls .n { font-size: 13px; letter-spacing: .02em; overflow-wrap: anywhere; }
+@media (max-width: 380px) { body.compact .classes .cls .n { font-size: 12px; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } }
 body.compact .diff .n { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.compact .modal-head .tabs { order: 3; flex-basis: 100%; }
 /* lobby upright on a phone: tighter, so the whole lobby fits one screen on most phones */

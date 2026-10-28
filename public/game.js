@@ -94,7 +94,7 @@ export class Game {
     this.bullets = []; this.powerups = []; this.airstrikes = [];
     if (this.zoneOn) { const R = Math.hypot(W, H) / 2 + 1; this.zone = { cx: W / 2, cy: H / 2, r0: R, r1: Math.max(4, Math.min(W, H) * 0.18), start: this.time + 45, end: this.time + 195, warned: false }; }
     this.tanks = this.tanks.filter(t => t.kind === 'player');
-    this.bases = this.layout.bases.map(b => ({ ...b, alive: true, hp: this.mode === 'battle' ? 10 : 1, maxHp: this.mode === 'battle' ? 10 : 1 }));
+    this.bases = this.layout.bases.map(b => ({ ...b, alive: true, hp: this.mode === 'battle' ? 20 : 1, maxHp: this.mode === 'battle' ? 20 : 1 }));
     this.shovel = [0, 0]; this.freezeUntil = 0;
     this.status = 'play';
     this.nextEventAt = this.time + 30 + this.rand() * 15;
