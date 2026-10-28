@@ -63,6 +63,8 @@ export class Renderer {
     this.fitScs = Math.max(4, Math.floor(Math.min(rw / W, rh / H)));
     const across = this.compact ? ZOOMS[this.zoom] : 0;
     this.zoomScs = across ? Math.max(this.fitScs, Math.round(Math.min(cw, ch) / across)) : this.fitScs;
+    // a map that nearly fits (a small square map in portrait) is shown whole instead of scrolling a few cells
+    if (this.zoom === 'close' && this.fitScs >= this.zoomScs * 0.8) this.zoomScs = this.fitScs;
   }
   // resolution of the pre-rendered map layers (zoomed views draw them scaled when a big map would use too much memory)
   layerCs() {

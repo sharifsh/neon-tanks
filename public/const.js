@@ -1,9 +1,12 @@
 // Shared constants for Neon Tanks
 // Map size is live: every module reads the current W/H (ES module live bindings).
-export let W = 48;             // map width in cells (a tank is 2x2 cells)
-export let H = 28;             // map height in cells
-export const SIZES = { S: [32, 20], M: [48, 28], L: [64, 36] };
+export let W = 26;             // map width in cells (a tank is 2x2 cells)
+export let H = 26;             // map height in cells
+// Square fields, phone first: the whole map (or most of it) fits a phone in either orientation.
+// Width/2 is odd so the core sits on the 2×2 block grid. 26×26 is the 1990 original's field.
+export const SIZES = { S: [26, 26], M: [30, 30], L: [38, 38] };
 export const SIZE_NAMES = { S: 'Small', M: 'Medium', L: 'Large' };
+export const LEGACY_SIZE = [48, 28]; // maps saved before sizes were stored in the map string
 export function setMapSize(w, h) { W = w; H = h; }
 export function sizeKey(w, h) { for (const k in SIZES) if (SIZES[k][0] === w && SIZES[k][1] === h) return k; return 'M'; }
 export const TICK = 1 / 60;    // simulation step (seconds)

@@ -32,7 +32,7 @@ const S = {
   pendingMap: null, fromEditor: false, endShown: false, checkpoint: null, migrating: false,
 };
 const LAYOUT_MODE = { C: 'classic', A: 'battle', D: 'deathmatch', U: 'duel' };
-function newLobby() { return { theme: curTheme(), mode: 'classic', map: null, size: 'auto', atmo: 'default', zone: false, bots: true, difficulty: store.get('nt_diff', 'normal'), started: false, players: [], spectators: [], order: [] }; }
+function newLobby() { return { theme: curTheme(), mode: 'classic', map: null, size: 'auto', atmo: 'default', zone: false, bots: true, difficulty: store.get('nt_diff', 'easy'), started: false, players: [], spectators: [], order: [] }; }
 if (!CLASSES[S.me.cls]) S.me.cls = 'striker';
 if (!CLASSES[S.p2.cls]) S.p2.cls = 'scout';
 const localIds = () => new Set([S.me.id, P2(S.me.id)]);
@@ -58,10 +58,23 @@ safeProbe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibili
 document.body.appendChild(safeProbe);
 function safeArea() { const c = getComputedStyle(safeProbe), n = v => parseFloat(v) || 0; return { t: n(c.paddingTop), r: n(c.paddingRight), b: n(c.paddingBottom), l: n(c.paddingLeft) }; }
 const isCompact = () => Math.min(innerWidth, innerHeight) <= 520;
-function layoutGame() {
+// body.compact = phone (any screen), body.portrait = phone held upright. Menus and the game both use them.
+function applyDeviceClasses() {
   const compact = isCompact(), portrait = compact && innerHeight > innerWidth;
   document.body.classList.toggle('compact', compact);
   document.body.classList.toggle('portrait', portrait);
+  return { compact, portrait };
+}
+applyDeviceClasses();
+// Touch-only devices hide keyboard bindings and keyboard two-player until a keyboard or controller shows up.
+if (matchMedia('(hover: none) and (pointer: coarse)').matches) {
+  document.body.classList.add('touch-only');
+  const hasKeys = () => document.body.classList.remove('touch-only');
+  addEventListener('keydown', e => { if (!/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.key && e.key.length < 12) hasKeys(); });
+  addEventListener('gamepadconnected', hasKeys);
+}
+function layoutGame() {
+  const { compact, portrait } = applyDeviceClasses();
   $('#btnZoom').classList.toggle('hidden', !compact);
   if (!compact) { renderer.setFrame(null); return; }
   const sa = safeArea(), top = Math.max(sa.t, $('#hudTop').getBoundingClientRect().bottom);
@@ -332,11 +345,12 @@ function renderLobby() {
   $('#playerCount').textContent = `${players.length}/${cap}`;
   const slots = $('#slots'); slots.innerHTML = '';
   const pvp = MODES[L.mode].pvp && !MODES[L.mode].ffa;
+  let openShown = false, lockShown = false; // phones list the players plus one open (and one locked) slot
   for (let i = 0; i < MAX_PLAYERS; i++) {
     const p = players[i];
     const d = document.createElement('div');
-    if (!p && i >= cap) { d.className = 'slot empty locked-slot'; d.innerHTML = '<span class="lock">🔒</span>Full version'; d.title = capMsg(); d.onclick = () => openFull(capMsg()); slots.appendChild(d); continue; }
-    if (!p) { d.className = 'slot empty'; d.textContent = S.online ? 'open slot' : (i === 1 && !S.p2.on ? 'add Player 2 below' : '—'); slots.appendChild(d); continue; }
+    if (!p && i >= cap) { d.className = 'slot empty locked-slot' + (lockShown ? ' extra' : ''); lockShown = true; d.innerHTML = '<span class="lock">🔒</span>Full version'; d.title = capMsg(); d.onclick = () => openFull(capMsg()); slots.appendChild(d); continue; }
+    if (!p) { d.className = 'slot empty' + (openShown || !S.online ? ' extra' : ''); openShown = true; d.textContent = S.online ? 'open slot' : (i === 1 && !S.p2.on ? 'add Player 2 below' : '—'); slots.appendChild(d); continue; }
     d.className = 'slot';
     const color = pvp ? TEAM_MAIN[i % 2] : PLAYER_COLORS[i % 8];
     const tag = { host: '<span class="net">HOST</span>', rtc: '<span class="net">P2P</span>', relay: '<span class="net relay">RELAY</span>', local: '<span class="net local">SAME PC</span>' }[p.net] || (p.net ? '<span class="net pending">…</span>' : '');
@@ -366,6 +380,7 @@ function renderLobby() {
     if (S.isHost) d.onclick = () => { sfx('click'); if (!ok) { openFull(`${m.name} is part of the full version.`); return; } S.lobby.mode = k; renderLobby(); broadcastLobby(); };
     modes.appendChild(d);
   }
+  $('#modeDesc').textContent = MODES[L.mode] ? MODES[L.mode].desc : '';
   // difficulty
   const dp = $('#diffPicker'); dp.innerHTML = '';
   for (const [k, df] of Object.entries(DIFFICULTIES)) {
@@ -375,6 +390,7 @@ function renderLobby() {
     if (S.isHost) d.onclick = () => { sfx('click'); if (!ok) { openFull(`${df.name} difficulty is part of the full version.`); return; } S.lobby.difficulty = k; store.set('nt_diff', k); renderLobby(); broadcastLobby(); };
     dp.appendChild(d);
   }
+  $('#diffDesc').textContent = DIFFICULTIES[L.difficulty] ? `${DIFFICULTIES[L.difficulty].name}: ${DIFFICULTIES[L.difficulty].desc}` : '';
   let mapTxt = L.map ? L.map.name : 'Procedural — new map every stage';
   if (L.map) { const lay = mapLayout(L.map.data); if (lay !== MODES[L.mode].layout) mapTxt += ' (other layout — procedural used)'; }
   $('#mapName').textContent = mapTxt;
@@ -597,7 +613,7 @@ async function becomeHost(oldId) {
   S.net.on = hostHandlers;
   await S.net.promote();
   S.peers = new Map();
-  S.lobby = { theme: curTheme(), mode: prev.mode, map: prev.map || null, bots: prev.bots, difficulty: prev.difficulty || 'normal', started: false, players: [], spectators: [], order: [] };
+  S.lobby = { theme: curTheme(), mode: prev.mode, map: prev.map || null, bots: prev.bots, difficulty: prev.difficulty || 'easy', started: false, players: [], spectators: [], order: [] };
   if (prev.started && S.checkpoint) {
     try {
       S.game = Game.deserialize(S.checkpoint);
@@ -759,7 +775,11 @@ addEventListener('keydown', e => {
   if (!$('#controlsModal').classList.contains('hidden')) { $('#controlsModal').classList.add('hidden'); return; }
   if (S.screen === 'game' && !S.endShown) togglePause();
 });
-addEventListener('resize', () => { if (S.screen === 'game') { layoutGame(); renderer.resize(); } resizeBg(); });
+addEventListener('resize', () => {
+  applyDeviceClasses();
+  if (S.screen === 'game') { if (input.releaseTouch) input.releaseTouch(); layoutGame(); renderer.resize(); } // turning the phone mid-game
+  resizeBg();
+});
 document.addEventListener('visibilitychange', () => { if (document.hidden) setEngine(false); }); // rAF stops in background tabs
 
 // ---------- main render loop ----------
@@ -951,7 +971,8 @@ function applyTheme(id, persist = true) {
   if (S.isHost && S.lobby) { S.lobby.theme = id; if (S.net) broadcastLobby(); }
   renderer.setTheme(id);
   setAudioTheme(id);
-  document.body.className = 'theme-' + id;
+  for (const c of [...document.body.classList]) if (c.startsWith('theme-')) document.body.classList.remove(c);
+  document.body.classList.add('theme-' + id);
   $('#logoTop').textContent = THEMES[id].word || 'NEON';
   document.title = `${(THEMES[id].word || 'NEON')[0] + (THEMES[id].word || 'NEON').slice(1).toLowerCase()} Tanks`;
   const mt = document.querySelector('meta[name=theme-color]'); if (mt) mt.content = THEMES[id].bg;
@@ -1070,7 +1091,7 @@ function enforceOwnership() {
 function enforceLobby() {
   if (!S.isHost || Full.owned) return;
   if (!modeFree(S.lobby.mode)) S.lobby.mode = 'classic';
-  if (!diffFree(S.lobby.difficulty)) S.lobby.difficulty = 'normal';
+  if (!diffFree(S.lobby.difficulty)) S.lobby.difficulty = 'easy';
   if (S.lobby.map && !mapFree(S.lobby.map)) S.lobby.map = null;
 }
 Full.onChange(why => {

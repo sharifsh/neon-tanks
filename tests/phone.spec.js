@@ -113,7 +113,7 @@ test.describe('phone, landscape', () => {
 
 test.describe('phone, portrait (website)', () => {
   test.use({ ...PHONE, viewport: { width: 402, height: 874 } });
-  test('controls sit on a deck below the map', async ({ page }) => {
+  test('the whole small square map shows above a deck with the controls', async ({ page }) => {
     await open(page, { native: false });
     await page.evaluate(() => localStorage.setItem('nt_zoom', 'close'));
     await startSolo(page);
@@ -121,8 +121,13 @@ test.describe('phone, portrait (website)', () => {
     const deckTop = await page.locator('#touch .tdeck').evaluate(e => e.getBoundingClientRect().top);
     const v = await view(page);
     expect(v.rect.b).toBeLessThanOrEqual(deckTop + 1);
-    expect(v.scs / 2).toBeGreaterThanOrEqual(16);
     expect(v.tank.y).toBeLessThan(deckTop);
+    const m = await page.evaluate(() => ({ W: window.__nt.game.mapW, H: window.__nt.game.mapH, ox: window.__r.ox / window.__r.scale, oy: window.__r.oy / window.__r.scale }));
+    expect([m.W, m.H]).toEqual([26, 26]); // solo plays the small square field
+    expect(v.scs).toBe(v.fit); // nothing scrolls: the whole map is on screen
+    expect(v.scs / 2).toBeGreaterThanOrEqual(14);
+    expect(m.ox).toBeGreaterThanOrEqual(-1); expect(m.ox + m.W * v.scs / 2).toBeLessThanOrEqual(v.w + 1);
+    expect(m.oy).toBeGreaterThanOrEqual(v.rect.t - 1); expect(m.oy + m.H * v.scs / 2).toBeLessThanOrEqual(deckTop + 1);
   });
 });
 
@@ -135,5 +140,109 @@ test.describe('desktop', () => {
     const v = await view(page);
     expect(v.compact).toBe(false);
     expect(v.scs).toBe(v.fit);
+  });
+});
+
+test.describe('phone menus (iPhone 13 size)', () => {
+  for (const [label, vp] of [['upright', { width: 390, height: 844 }], ['on its side', { width: 844, height: 390 }]]) {
+    test.describe(label, () => {
+      test.use({ ...PHONE, viewport: vp });
+      test('Play Solo is on the first screen, keyboard-only options are hidden, the lobby starts on Easy', async ({ page }) => {
+        const hits = await open(page, {});
+        await expect(page.locator('body')).toHaveClass(/compact/);
+        await expect(page.locator('body')).toHaveClass(/touch-only/);
+        for (const id of ['#btnSolo', '#btnCreate', '#btnJoin', '#nameInput']) {
+          const r = await page.locator(id).boundingBox();
+          expect(r.y + r.height, id).toBeLessThanOrEqual(vp.height);
+        }
+        await expect(page.locator('#btnControls')).toBeHidden();
+        await page.click('#btnSolo');
+        await expect(page.locator('#lobby')).toHaveClass(/active/);
+        expect(await page.evaluate(() => window.__nt.lobby.difficulty)).toBe('easy');
+        await expect(page.locator('#diffDesc')).toContainText('Easy');
+        await expect(page.locator('#btnAddP2')).toBeHidden();
+        await expect(page.locator('#btnControls2')).toBeHidden();
+        const start = await page.locator('#btnStart').boundingBox();
+        expect(start.y + start.height).toBeLessThanOrEqual(vp.height); // Start stays in reach
+        // a keyboard appears: its options come back
+        await page.keyboard.press('KeyW');
+        await expect(page.locator('#btnControls2')).toBeVisible();
+        expect(hits).toEqual([]);
+      });
+    });
+  }
+});
+
+test.describe('turning the phone', () => {
+  test.use({ ...PHONE, viewport: { width: 390, height: 844 } });
+  test('upright to sideways mid-game: the controls deck goes away and the view re-fits', async ({ page }) => {
+    await open(page, {});
+    await page.evaluate(() => localStorage.setItem('nt_zoom', 'close'));
+    await startSolo(page);
+    await expect(page.locator('body')).toHaveClass(/portrait/);
+    await expect(page.locator('#touch .tdeck')).toBeVisible();
+    await page.setViewportSize({ width: 844, height: 390 });
+    await expect(page.locator('body')).not.toHaveClass(/portrait/);
+    await expect(page.locator('#touch .tdeck')).toBeHidden();
+    await page.waitForFunction(() => window.__r.canvas.width === Math.round(innerWidth * window.__r.scale));
+    const v = await view(page);
+    expect(v.w).toBe(844);
+    expect(v.tank.y).toBeGreaterThan(0); expect(v.tank.y).toBeLessThan(390);
+    expect(await page.evaluate(() => window.__nt.game.status)).toBe('play');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('body')).toHaveClass(/portrait/);
+  });
+});
+
+test.describe('maps', () => {
+  test('every built-in map is square, phone sized, drawn on the block grid and playable', async ({ page }) => {
+    await open(page, {});
+    const maps = await page.evaluate(async () => {
+      const { builtinMaps } = await import('./maps.js');
+      const { decodeMap } = await import('./levels.js');
+      return builtinMaps().map(m => { const d = decodeMap(m.data); return { id: m.id, w: d.w, h: d.h, valid: m.valid, layout: d.layout }; });
+    });
+    expect(maps.length).toBe(24);
+    for (const m of maps) {
+      expect(m.valid, m.id).toBe(true);
+      expect(m.w, m.id).toBe(m.h);
+      expect([26, 30, 38], m.id).toContain(m.w);
+    }
+    const free = await page.evaluate(async () => (await import('./store.js')).FREE.maps);
+    for (const id of free) expect(maps.map(m => m.id)).toContain(id);
+    // random maps too, at every size and layout
+    const bad = await page.evaluate(async () => {
+      const { generateMap, getLayout, checkConnectivity } = await import('./levels.js');
+      const C = await import('./const.js');
+      const out = [];
+      for (const size of ['S', 'M', 'L']) for (const lay of ['C', 'A', 'D', 'U']) for (let seed = 1; seed <= 6; seed++) {
+        C.setMapSize(...C.SIZES[size]);
+        const g = generateMap(lay, seed, 2);
+        if (!checkConnectivity(g.grid, getLayout(lay))) out.push(`${lay}${size}#${seed}`);
+      }
+      return out;
+    });
+    expect(bad).toEqual([]);
+  });
+
+  test('cornering: pushing into a wall one cell beside a gap slides the tank through', async ({ page }) => {
+    await open(page, {});
+    const r = await page.evaluate(async () => {
+      const { Game } = await import('./game.js');
+      const C = await import('./const.js');
+      const g = new Game({ mode: 'classic', size: 'S', players: [{ id: 'p', name: 'A', cls: 'striker' }], difficulty: 'easy', seed: 3 });
+      g.addPlayer({ id: 'p', name: 'A', cls: 'striker' });
+      for (let i = 0; i < 400 && !g.tanks.some(t => t.kind === 'player' && g.time > t.spawnUntil); i++) g.step();
+      const W = C.W, out = {};
+      for (const [x0, key] of [[9, 'left'], [11, 'right'], [8, 'twoAway']]) {
+        g.grid.fill(C.T.EMPTY); for (let x = 0; x < W; x++) if (x !== 10 && x !== 11) g.grid[10 * W + x] = g.grid[11 * W + x] = C.T.STEEL;
+        g.tanks = g.tanks.filter(t => t.kind === 'player'); g.freezeUntil = g.time + 99;
+        const me = g.tanks[0]; me.x = x0; me.y = 14; me.dir = 0;
+        g.setInput('p', { d: 0 }); for (let i = 0; i < 90; i++) g.step();
+        out[key] = me.y < 10;
+      }
+      return out;
+    });
+    expect(r).toEqual({ left: true, right: true, twoAway: false });
   });
 });

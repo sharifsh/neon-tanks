@@ -12,7 +12,10 @@ export class Game {
     // map size: a chosen map dictates it, otherwise S/M/L or auto by mode & player count
     let dims = SIZES[cfg.size];
     if (cfg.customMap) dims = mapDims(cfg.customMap);
-    if (!dims) { const n = (cfg.players || []).length; dims = this.mode === 'duel' ? SIZES.S : (n > 4 && MODES[this.mode].pvp) ? SIZES.L : SIZES.M; }
+    if (!dims) { // Auto: the smallest field that suits the players (phone first: small maps show whole on a phone)
+      const n = (cfg.players || []).length, pvp = MODES[this.mode].pvp;
+      dims = this.mode === 'duel' ? SIZES.S : pvp ? (n > 4 ? SIZES.L : SIZES.M) : (n <= 2 ? SIZES.S : n <= 5 ? SIZES.M : SIZES.L);
+    }
     [this.mapW, this.mapH] = dims; setMapSize(this.mapW, this.mapH);
     this.atmo = ['night', 'fog'].includes(cfg.atmo) ? cfg.atmo : 'clear';
     this.zoneOn = !!cfg.zone && this.mode === 'deathmatch';
@@ -25,7 +28,7 @@ export class Game {
     this.freezeAllBut = null;
     this.seed = cfg.seed || (Math.random() * 1e9) | 0;
     this.rs = (this.seed >>> 0) || 1;
-    this.difficulty = DIFFICULTIES[cfg.difficulty] ? cfg.difficulty : 'normal';
+    this.difficulty = DIFFICULTIES[cfg.difficulty] ? cfg.difficulty : 'easy';
     this.diff = DIFFICULTIES[this.difficulty];
     this.time = 0; this.tick = 0; this.nextId = 1;
     this.players = new Map();     // id -> player record
@@ -430,9 +433,11 @@ export class Game {
     return false;
   }
 
-  moveTank(t, dir, dist) {
+  moveTank(t, dir, dist, assist = false) {
+    let pre = null;
     if (dir !== t.dir) {
       if ((dir % 2) !== (t.dir % 2)) {
+        pre = dir % 2 === 0 ? t.x : t.y;
         if (dir % 2 === 0) t.x = Math.round(t.x); else t.y = Math.round(t.y);
       }
       t.dir = dir;
@@ -446,7 +451,45 @@ export class Game {
       if (this.blockedAt(t, nx, ny)) break;
       t.x = nx; t.y = ny; moved += st;
     }
+    if (assist && moved === 0) moved = this.cornerAssist(t, dir, dist, pre);
     return moved;
+  }
+
+  // Players only: pushing into a wall with an opening up to one cell to the side slides the tank
+  // into the opening, so a lane can be entered without lining up exactly (kind to touch sticks).
+  cornerAssist(t, dir, dist, pre) {
+    const [dx, dy] = DIRS[dir], lat = dx === 0 ? 'x' : 'y'; // the sideways axis
+    if (!this.wallAt(t, t.x + dx * 0.1, t.y + dy * 0.1)) return 0; // stopped by a tank, not a wall: no slide
+    const along = t[lat], ref = pre ?? along, r = Math.round(along);
+    const cands = [Math.floor(along), Math.ceil(along), r - 1, r + 1]
+      .filter((c, i, a) => a.indexOf(c) === i && c !== along && Math.abs(c - along) <= 1.01)
+      .sort((a, b) => Math.abs(a - ref) - Math.abs(b - ref));
+    for (const c of cands) {
+      const pos = { x: t.x, y: t.y }; pos[lat] = c;
+      if (this.blockedAt(t, pos.x, pos.y) || this.wallAt(t, pos.x + dx * 0.1, pos.y + dy * 0.1)) continue; // no opening there
+      const k = Math.sign(c - along), step = Math.min(dist, Math.abs(c - along)), n = Math.max(1, Math.ceil(step / 0.1)), st = step / n;
+      let moved = 0;
+      for (let i = 0; i < n; i++) {
+        const nxt = { x: t.x, y: t.y }; nxt[lat] += k * st;
+        if (this.blockedAt(t, nxt.x, nxt.y)) break;
+        t[lat] = nxt[lat]; moved += st;
+      }
+      if (Math.abs(t[lat] - c) < 0.02) t[lat] = c;
+      return moved;
+    }
+    return 0;
+  }
+  // walls only (tiles, map edge, cores) — ignores other tanks
+  wallAt(t, nx, ny) {
+    const s = t.size;
+    if (nx < -EPS || ny < -EPS || nx + s > W + EPS || ny + s > H + EPS) return true;
+    const x0 = Math.floor(nx + EPS), x1 = Math.floor(nx + s - EPS), y0 = Math.floor(ny + EPS), y1 = Math.floor(ny + s - EPS);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const v = this.t(x, y);
+      if (v === T.STEEL || v === T.WATER || v === T.BRICK || v === T.BARREL) return true;
+    }
+    if (this.mode !== 'ctf') for (const b of this.bases) if (nx < b.x + 2 - EPS && nx + s > b.x + EPS && ny < b.y + 2 - EPS && ny + s > b.y + EPS) return true;
+    return false;
   }
 
   bulldoze(nx, ny, s) {
@@ -471,7 +514,7 @@ export class Game {
     t.moving = false;
     if (!frozen) {
       if (inp.d >= 0 && inp.d < 4) {
-        const m = this.moveTank(t, inp.d, speed * dt); t.moving = m > 0;
+        const m = this.moveTank(t, inp.d, speed * dt, true); t.moving = m > 0;
         if (this.onIce(t)) t.slideUntil = this.time + 0.35;
       } else if (this.time < t.slideUntil) {
         const m = this.moveTank(t, t.dir, speed * 0.8 * dt); t.moving = m > 0;

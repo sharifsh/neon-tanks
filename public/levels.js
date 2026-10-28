@@ -1,5 +1,5 @@
 // Map layouts, procedural generation, encoding. All coordinates scale with the live map size.
-import { W, H, T, TILE_CHARS, SIZES, setMapSize } from './const.js';
+import { W, H, T, TILE_CHARS, SIZES, LEGACY_SIZE, setMapSize } from './const.js';
 
 export function rng(seed) {
   let a = (seed >>> 0) || 1;
@@ -14,30 +14,33 @@ export function rng(seed) {
 // Layout: positions for bases and spawns per layout type, computed for the current W×H
 export function getLayout(type) {
   const cx = W / 2 - 1, cy = H / 2 - 1;
+  // Everything sits on the 2×2 block grid (even cells), so tanks line up with the lanes between walls.
+  const ev = v => 2 * Math.round(v / 2);
   if (type === 'D') { // free-for-all: 8 spread-out spawns, no bases
     return {
       type, bases: [], rings: [], enemySpawns: [],
       playerSpawns: [[
-        { x: 1, y: 1, dir: 2 }, { x: W - 3, y: H - 3, dir: 0 }, { x: W - 3, y: 1, dir: 2 }, { x: 1, y: H - 3, dir: 0 },
-        { x: cx, y: 1, dir: 2 }, { x: cx, y: H - 3, dir: 0 }, { x: 1, y: cy, dir: 1 }, { x: W - 3, y: cy, dir: 3 },
+        { x: 0, y: 0, dir: 2 }, { x: W - 2, y: H - 2, dir: 0 }, { x: W - 2, y: 0, dir: 2 }, { x: 0, y: H - 2, dir: 0 },
+        { x: cx, y: 0, dir: 2 }, { x: cx, y: H - 2, dir: 0 }, { x: 0, y: cy, dir: 1 }, { x: W - 2, y: cy, dir: 3 },
       ]],
     };
   }
   if (type === 'U') { // duel: 1v1, facing each other across the map
     return {
       type, bases: [], rings: [], enemySpawns: [],
-      playerSpawns: [[{ x: 1, y: cy, dir: 1 }, { x: W - 3, y: cy, dir: 3 }, { x: cx, y: 1, dir: 2 }, { x: cx, y: H - 3, dir: 0 }]],
+      playerSpawns: [[{ x: 0, y: cy, dir: 1 }, { x: W - 2, y: cy, dir: 3 }, { x: cx, y: 0, dir: 2 }, { x: cx, y: H - 2, dir: 0 }]],
     };
   }
   if (type === 'A') {
-    const a = 3, c = Math.round(H * 0.29), g = Math.round(H * 0.21);
-    const ys1 = [a, H - a - 2, c, H - c - 2], ys2 = [1, H - 3, g, H - g - 2];
+    const c = ev(H * 0.29), g = ev(H * 0.21);
+    const ys1 = [2, H - 4, c, H - c - 2], ys2 = [0, H - 2, g, H - g - 2];
+    const x1 = W < 30 ? 2 : 4, x2 = x1 + 4;
     const team = (x1, x2, dir) => [...ys1.map(y => ({ x: x1, y, dir })), ...ys2.map(y => ({ x: x2, y, dir }))];
     return {
       type,
       bases: [{ x: 0, y: cy, team: 0 }, { x: W - 2, y: cy, team: 1 }],
       rings: [ringCells(0, cy), ringCells(W - 2, cy)],
-      playerSpawns: [team(4, 8, 1), team(W - 6, W - 10, 3)],
+      playerSpawns: [team(x1, x2, 1), team(W - 2 - x1, W - 2 - x2, 3)],
       enemySpawns: [],
     };
   }
@@ -45,16 +48,16 @@ export function getLayout(type) {
   const bx = W / 2 - 1, by = H - 2, spawns = [];
   const offs = [-6, 6, -10, 10, -14, 14, -18, 18, -22, 22, -26, 26];
   for (const o of offs) { const x = bx + o; if (x >= 1 && x <= W - 3 && spawns.length < 8) spawns.push({ x, y: by, dir: 0 }); }
-  for (let i = 0; spawns.length < 8; i++) spawns.push({ x: bx + (i % 2 ? 5 + i * 2 : -5 - i * 2), y: H - 7, dir: 0 });
-  const q = Math.round(W / 4);
+  for (let i = 0; spawns.length < 8; i++) spawns.push({ x: bx + (i % 2 ? 4 + (i >> 1) * 4 : -4 - (i >> 1) * 4), y: ev(H - 8), dir: 0 });
+  const q = ev(W / 4);
   return {
     type: 'C',
     bases: [{ x: bx, y: by, team: 0 }],
     rings: [ringCells(bx, by, 2)],
-    playerSpawns: [spawns.map(s => ({ ...s, x: Math.max(1, Math.min(W - 3, s.x)) }))],
+    playerSpawns: [spawns.map(s => ({ ...s, x: Math.max(0, Math.min(W - 2, s.x)) }))],
     enemySpawns: [{ x: 0, y: 0 }, { x: q, y: 0 }, { x: bx, y: 0 }, { x: W - q - 2, y: 0 }, { x: W - 2, y: 0 }],
     bossSpawn: { x: bx - 1, y: 0 },
-    sideSpawns: [{ x: 0, y: Math.round(H * 0.36) }, { x: W - 2, y: Math.round(H * 0.36) }],
+    sideSpawns: [{ x: 0, y: ev(H * 0.36) }, { x: W - 2, y: ev(H * 0.36) }],
   };
 }
 
@@ -98,7 +101,7 @@ export function encodeMap(layoutType, grid) {
 }
 export function mapDims(str) {
   const head = String(str).split('|')[0], m = head.match(/:(\d+)x(\d+)/);
-  return m ? [+m[1], +m[2]] : SIZES.M;
+  return m ? [+m[1], +m[2]] : LEGACY_SIZE;
 }
 export const mapLayout = str => ('CADU'.includes(String(str)[0]) ? String(str)[0] : 'C');
 // Pure: returns the grid at the map's own size (callers set the live size when they use it)
@@ -160,7 +163,11 @@ export function generateMap(layoutType, seed, difficulty = 1) {
         block(bx, by, T.STEEL);
       }
     }
-    for (let i = 0; i < W * H; i++) if (grid[i] === T.BRICK && r() < 0.08) grid[i] = T.EMPTY;
+    // knock whole 2×2 blocks out of brick walls (never single cells: lanes stay one tank wide and edges stay clean)
+    for (let y = 0; y < H - 1; y += 2) for (let x = 0; x < W - 1; x += 2) {
+      const i = y * W + x;
+      if (grid[i] === T.BRICK && grid[i + 1] === T.BRICK && grid[i + W] === T.BRICK && grid[i + W + 1] === T.BRICK && r() < 0.12) grid[i] = grid[i + 1] = grid[i + W] = grid[i + W + 1] = T.EMPTY;
+    }
     mirrorGrid(grid, layoutType === 'D' || layoutType === 'U');
     applyLayout(grid, layout);
     if (checkConnectivity(grid, layout)) return { layout: layoutType, grid };
