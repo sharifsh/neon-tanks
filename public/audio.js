@@ -8,8 +8,9 @@ const sfxLevel = () => settings.sfx * (SFX_GAIN[pack] || 1);
 const REVERB = { neon: [0.12, 0.32], modern: [0.22, 0.35], miniature: [0.1, 0.2], pixel: [0, 0.07], winter: [0.45, 0.6], desert: [0.18, 0.36], blueprint: [0.15, 0.35] };
 
 export function initAudio() {
-  if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
+  if (ctx) { wake(true); return; }
   buildGraph(new (window.AudioContext || window.webkitAudioContext)());
+  setInterval(watchClock, 500);
 }
 function buildGraph(c) {
   ctx = c;
@@ -300,7 +301,7 @@ function stopEngine() {
 }
 // Called every frame: moving = one of your tanks is driving; boost > 1 while dashing.
 export function setEngine(moving, boost = 1) {
-  if (!ctx || ctx.state !== 'running') return;
+  if (!ctx || ctx.state !== 'running' || isHidden()) return;
   if (eng && eng.pack !== pack) stopEngine();
   if (!eng) { if (!moving) return; eng = buildEngine(); }
   if (moving === eng.on && boost === eng.boost) return;
@@ -645,11 +646,58 @@ export function startMusic() {
   musicTimer = setInterval(() => {
     if (!musicOn || !ctx) return;
     const song = SONGS[pack] || SONGS.neon, sd = 60 / song.bpm / 4;
-    if (next < ctx.currentTime - 1) next = ctx.currentTime + 0.05; // tab was asleep
+    if (next < ctx.currentTime - 1 || next > ctx.currentTime + 2) next = ctx.currentTime + 0.05; // tab was asleep, or a new audio engine
     while (next < ctx.currentTime + 0.3) { song.play(step, next, sd); next += sd; step++; }
   }, 60);
 }
 export function toggleMusic(on) { musicOn = on; if (musicGain) musicGain.gain.value = musicLevel(); }
+
+// ---------- minimizing the game and coming back ----------
+// Phones stop the audio engine when the game goes to the background, and iOS can leave it 'suspended'
+// or 'interrupted' (or 'running' with its clock stopped) until the player touches the screen. So the game
+// pauses its own sound while hidden, resumes it when it's visible again, tries again on the next touch or
+// key press, and as a last resort swaps in a fresh audio engine. Music carries on from the same bar.
+const isHidden = () => document.visibilityState === 'hidden';
+const call = (c, m) => { try { const p = c[m](); if (p && p.catch) p.catch(() => {}); } catch (e) { /* closed, or refused */ } };
+let retry = null, lastRebuild = -1e9, rebuilds = 0, clockT = -1, clockAt = 0;
+function sleep() {
+  if (!ctx || ctx.state !== 'running') return;
+  if (eng) { eng.on = false; eng.out.gain.cancelScheduledValues(0); eng.out.gain.value = 0; } // no engine hum on the way back
+  call(ctx, 'suspend');
+}
+function wake(gesture = false) {
+  if (!ctx || isHidden() || ctx.state === 'running') return;
+  const c = ctx;
+  call(c, 'resume');
+  // still silent a moment after a touch: the system is holding on to this engine, so use a new one
+  if (gesture && !retry) retry = setTimeout(() => { retry = null; if (c === ctx && !isHidden() && c.state !== 'running') rebuild(); }, 800);
+}
+function rebuild() {
+  const t = performance.now();
+  if (t - lastRebuild < 4000 || rebuilds >= 3) return;
+  lastRebuild = t; rebuilds++;
+  const old = ctx;
+  eng = null; // its sound nodes belong to the old engine
+  buildGraph(new (window.AudioContext || window.webkitAudioContext)());
+  call(old, 'close');
+  next = ctx.currentTime + 0.1; clockT = -1;
+  if (ctx.state !== 'running') call(ctx, 'resume'); // plays now, or after the next touch
+}
+// An engine that says it's running but whose clock has stopped never makes a sound again.
+function watchClock() {
+  if (!ctx || isHidden() || ctx.state !== 'running') { clockT = -1; return; }
+  const t = performance.now();
+  if (ctx.currentTime !== clockT) { clockT = ctx.currentTime; clockAt = t; rebuilds = 0; return; }
+  if (t - clockAt > 2000) rebuild();
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => { if (isHidden()) sleep(); else { rebuilds = 0; wake(); } });
+  addEventListener('pagehide', sleep);
+  addEventListener('pageshow', () => wake());
+  addEventListener('focus', () => wake());
+  for (const ev of ['pointerdown', 'pointerup', 'touchend', 'keydown', 'click']) addEventListener(ev, () => wake(true), { capture: true, passive: true });
+}
+export const audioDebug = { get ctx() { return ctx; }, get step() { return step; }, get next() { return next; }, get engineOn() { return !!(eng && eng.on); }, sfx }; // for tests
 export const SOUND_PACKS = Object.keys(PACKS);
 
 // Offline render used by automated tests: returns peak / rms for one sfx or a pack's soundtrack.

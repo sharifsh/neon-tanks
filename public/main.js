@@ -8,7 +8,7 @@ import { Net, makeRoomCode, saveLevel, loadLevel, listLevels } from './net.js';
 import { Editor, mapPreview } from './editor.js';
 import { decodeMap, generateMap, mapLayout, mapDims } from './levels.js';
 import { builtinMaps } from './maps.js';
-import { initAudio, playEvents, startMusic, setVolume, sfx, setAudioTheme, setEngine } from './audio.js';
+import { initAudio, playEvents, startMusic, setVolume, sfx, setAudioTheme, setEngine, audioDebug } from './audio.js';
 import { Full, FREE, SITE_URL, APP_STORE_URL, PLAY_STORE_URL, modeFree, diffFree, themeFree, classFree, mapFree } from './store.js';
 
 const $ = s => document.querySelector(s);
@@ -1000,7 +1000,6 @@ addEventListener('resize', () => {
   if (S.screen === 'game') { if (input.releaseTouch) input.releaseTouch(); layoutGame(); renderer.resize(); } // turning the phone mid-game
   resizeBg();
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden) setEngine(false); }); // rAF stops in background tabs
 
 // ---------- main render loop ----------
 let lastFrame = performance.now();
@@ -1350,4 +1349,4 @@ if (params.get('room')) {
   else { toast('Enter your callsign and press Join', 4000); $('#nameInput').focus(); }
 }
 addEventListener('pointerdown', () => initAudio(), { once: true });
-window.__nt = S; window.__input = input; window.__applyTheme = applyTheme; window.__full = Full; window.__r = renderer; // debug handles
+window.__nt = S; window.__input = input; window.__applyTheme = applyTheme; window.__full = Full; window.__r = renderer; window.__audio = audioDebug; // debug handles
