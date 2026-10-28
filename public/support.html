@@ -14,7 +14,37 @@
   <a class="home" href="./">← Back to the game</a>
   <h1>Support</h1>
   <p class="meta">Neon Tanks: Arena Battle</p>
-  <p class="contact">Questions, bugs or a purchase problem? Email <a href="mailto:trackmyreceipt@gmail.com?subject=Neon%20Tanks%20support">trackmyreceipt@gmail.com</a>. It helps to include your device model and what you were doing.</p>
+  <p class="contact">Questions, bugs or a purchase problem? Write to us with the form below, or email <a href="mailto:trackmyreceipt@gmail.com?subject=Neon%20Tanks%20support">trackmyreceipt@gmail.com</a>. We usually reply within a few days.</p>
+
+  <h2 id="write">Write to us</h2>
+  <form id="supportForm" class="sform" novalidate>
+    <label for="sfTopic">What's it about?</label>
+    <select id="sfTopic" name="topic" required aria-describedby="sfTopicErr">
+      <option value="">Choose one…</option>
+      <option value="purchase">Purchase or restore</option>
+      <option value="bug">Bug or crash</option>
+      <option value="online">Online play</option>
+      <option value="idea">Idea or feedback</option>
+      <option value="other">Something else</option>
+    </select>
+    <p id="sfTopicErr" class="err" hidden></p>
+    <p id="sfRestoreTip" class="tip" hidden>Tip: <b>Settings → Restore purchases</b> on the main screen brings back the full version for free on a new or reset device.</p>
+    <label for="sfEmail">Your email <span class="hint">so we can reply</span></label>
+    <input id="sfEmail" name="email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" maxlength="254" required aria-describedby="sfEmailErr">
+    <p id="sfEmailErr" class="err" hidden></p>
+    <label for="sfMessage">Message</label>
+    <textarea id="sfMessage" name="message" rows="6" maxlength="4000" required aria-describedby="sfMessageErr sfCount" placeholder="What happened, and what were you doing? For a bug, the mode and map help a lot."></textarea>
+    <p class="row"><span id="sfMessageErr" class="err" hidden></span><span id="sfCount" class="count">0 / 4000</span></p>
+    <div class="hp" aria-hidden="true"><label for="sfWebsite">Leave this empty</label><input id="sfWebsite" name="website" tabindex="-1" autocomplete="off"></div>
+    <p class="fine">With your message we also send your device type, system version, language and screen size, to help fix problems. See the <a href="privacy.html#support">privacy policy</a>.</p>
+    <button id="sfSend" type="submit">Send message</button>
+    <p id="sfStatus" class="status" role="status" aria-live="polite"></p>
+  </form>
+  <div id="supportSent" class="sent" hidden tabindex="-1">
+    <p class="big">Thanks, your message is on its way.</p>
+    <p>We'll reply to <b id="sentTo"></b>, usually within a few days. If you don't hear back, check your spam folder.</p>
+    <p><a href="#write" id="sfAgain">Write another message</a></p>
+  </div>
 
   <h2>Full version</h2>
   <details open><summary>What's free and what does the full version add?</summary>
@@ -52,12 +82,14 @@
   </details>
   <details><summary>Controls</summary>
     <p>On a phone or tablet, use the on-screen joystick and the FIRE and ABL (ability) buttons. The joystick stays at the bottom left; if you prefer it to appear wherever your thumb lands, choose <b>Follows thumb</b> in <b>Settings</b> (or in the pause menu). Game controllers and keyboards work too, and all keys can be changed under <b>Settings → Keyboard &amp; gamepad controls</b>.</p>
+    <p>On a phone the view follows your tank. The magnifier button at the top right changes how close it is. The map buttons (at the top right, and the round one just above FIRE) show the whole map: tap for a quick look, or hold to keep it up until you let go.</p>
   </details>
   <details><summary>Someone published an inappropriate map name.</summary>
-    <p>Email the map name or link to <a href="mailto:trackmyreceipt@gmail.com">trackmyreceipt@gmail.com</a> and I'll remove it.</p>
+    <p>Send the map name or link with the form above (choose <b>Something else</b>), or email <a href="mailto:trackmyreceipt@gmail.com">trackmyreceipt@gmail.com</a>, and I'll remove it.</p>
   </details>
 
   <p class="foot"><a href="privacy.html">Privacy Policy</a> · <a href="./">Play the free version</a> · © 2026 Sharif Sharipov</p>
 </main>
+<script type="module" src="support.js"></script>
 </body>
 </html>

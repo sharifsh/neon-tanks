@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Support inbox — Neon Tanks</title>
+<link rel="icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="page.css">
+<link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin">
+<main class="wrap">
+  <header class="top">
+    <div class="brand"><span class="logo">NEON TANKS</span><span class="sub">Support inbox</span></div>
+    <div class="who" id="who" hidden><span id="whoEmail" class="muted"></span><button type="button" class="btn ghost small" id="signOut">Sign out</button></div>
+  </header>
+
+  <p id="loading" class="muted center">Loading…</p>
+
+  <section id="signin" class="card narrow" hidden>
+    <h1>Sign in</h1>
+    <form id="signinForm" class="sform" novalidate>
+      <label for="siEmail">Email</label>
+      <input id="siEmail" type="email" inputmode="email" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+      <label for="siPass">Password</label>
+      <input id="siPass" type="password" autocomplete="current-password" required>
+      <button type="submit" id="siBtn">Sign in</button>
+      <p id="siStatus" class="status" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <section id="denied" class="card narrow" hidden>
+    <h1>No access</h1>
+    <p>You're signed in as <b id="deniedEmail"></b>, but this account doesn't have access to the support inbox.</p>
+    <button type="button" class="btn" id="deniedOut">Sign out</button>
+  </section>
+
+  <section id="app" hidden>
+    <nav class="tabs" role="tablist" aria-label="Admin">
+      <button type="button" role="tab" id="tabInbox" aria-controls="inbox" aria-selected="true">Inbox <span class="badge" id="newBadge" hidden></span></button>
+      <button type="button" role="tab" id="tabSettings" aria-controls="settings" aria-selected="false">Email settings <span class="dot-warn" id="mailWarn" hidden title="Email is off"></span></button>
+    </nav>
+
+    <div id="inbox" role="tabpanel" aria-labelledby="tabInbox">
+      <div class="bar">
+        <div class="filters" role="group" aria-label="Show">
+          <button type="button" class="chip" data-f="new" aria-pressed="true">New <span class="n"></span></button>
+          <button type="button" class="chip" data-f="open" aria-pressed="false">Open <span class="n"></span></button>
+          <button type="button" class="chip" data-f="done" aria-pressed="false">Done <span class="n"></span></button>
+          <button type="button" class="chip" data-f="all" aria-pressed="false">All</button>
+        </div>
+        <button type="button" class="btn ghost small" id="refresh">Refresh</button>
+      </div>
+      <p id="mailOffNote" class="note" hidden>Email is off, so new messages only show up here. <a href="#settings" id="toSettings">Set up email</a></p>
+      <div class="split">
+        <div class="listcol">
+          <ul id="list" class="list" aria-label="Messages"></ul>
+          <p id="empty" class="empty" hidden>No messages here.</p>
+          <button type="button" id="more" class="btn ghost small" hidden>Show older</button>
+          <p id="listStatus" class="status" role="status" aria-live="polite"></p>
+        </div>
+        <article id="detail" class="detail" hidden aria-live="polite">
+          <button type="button" class="btn ghost small back" id="back">← All messages</button>
+          <header class="dhead">
+            <span class="topic" id="dTopic"></span>
+            <time id="dWhen"></time>
+          </header>
+          <p class="from"><a id="dEmail" href="#"></a> <span class="muted" id="dSource"></span></p>
+          <div class="msg" id="dMessage"></div>
+          <details class="device"><summary>Device details</summary><dl id="dDevice"></dl></details>
+          <p class="mailline" id="dMail"></p>
+          <div class="actions">
+            <a class="btn" id="dReply" href="#">Reply by email</a>
+            <div class="seg" role="group" aria-label="Status">
+              <button type="button" data-s="new">New</button><button type="button" data-s="open">Open</button><button type="button" data-s="done">Done</button>
+            </div>
+            <button type="button" class="btn ghost small" id="dResend" hidden>Email it to me again</button>
+            <span class="spacer"></span>
+            <button type="button" class="btn ghost small" id="dDelete">Delete</button>
+            <span id="dConfirm" class="confirm" hidden>Delete for good? <button type="button" class="btn danger small" id="dDeleteYes">Delete</button> <button type="button" class="btn ghost small" id="dDeleteNo">Keep</button></span>
+          </div>
+          <p id="dStatus" class="status" role="status" aria-live="polite"></p>
+        </article>
+      </div>
+    </div>
+
+    <div id="settings" role="tabpanel" aria-labelledby="tabSettings" hidden>
+      <div class="cols">
+        <form id="smtpForm" class="sform" novalidate>
+          <label class="switch"><input type="checkbox" id="smEnabled"> <span>Email me every new message</span></label>
+          <label for="smHost">Mail server (SMTP)</label>
+          <input id="smHost" placeholder="smtp.gmail.com" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="smHostErr">
+          <p class="err" id="smHostErr" hidden></p>
+          <label>Port</label>
+          <p class="fixed">465 · SSL/TLS from the start</p>
+          <label for="smUser">Username</label>
+          <input id="smUser" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="smUserErr">
+          <p class="err" id="smUserErr" hidden></p>
+          <label for="smPass">Password</label>
+          <input id="smPass" type="password" autocomplete="new-password" aria-describedby="smPassHint smPassErr">
+          <p class="hint small" id="smPassHint"></p>
+          <p class="err" id="smPassErr" hidden></p>
+          <label for="smFrom">From address</label>
+          <input id="smFrom" type="email" inputmode="email" autocapitalize="off" spellcheck="false" aria-describedby="smFromErr">
+          <p class="err" id="smFromErr" hidden></p>
+          <label for="smFromName">From name</label>
+          <input id="smFromName" placeholder="Neon Tanks Support" aria-describedby="smFromNameErr">
+          <p class="err" id="smFromNameErr" hidden></p>
+          <label for="smTo">Send messages to</label>
+          <input id="smTo" type="email" inputmode="email" autocapitalize="off" spellcheck="false" aria-describedby="smToErr">
+          <p class="err" id="smToErr" hidden></p>
+          <div class="actions">
+            <button type="submit" id="smSave">Save</button>
+            <button type="button" class="btn ghost" id="smTest">Send test email</button>
+          </div>
+          <p id="smStatus" class="status" role="status" aria-live="polite"></p>
+        </form>
+        <aside class="help">
+          <h2>How it works</h2>
+          <p>Each new message from the support form is emailed to <b>Send messages to</b>, with the player's address as the reply-to, so you can answer straight from your mail app. Messages also stay here, even when email is off.</p>
+          <p>Only port 465 works here: the server that sends these emails can't use ports 25 or 587.</p>
+          <h2>Gmail</h2>
+          <p>Mail server <b>smtp.gmail.com</b>. Username and from address: your Gmail address. Password: an <b>app password</b> (Google Account → Security → 2-Step Verification → App passwords), not your normal password.</p>
+          <p class="muted">Other services with port 465 include Yahoo, Zoho, Amazon SES, SendGrid, Brevo, Mailgun and Resend. Outlook.com and iCloud Mail only offer port 587.</p>
+          <p class="muted">The password is stored encrypted and is never shown again, here or anywhere else.</p>
+        </aside>
+      </div>
+    </div>
+  </section>
+</main>
+<script type="module" src="admin.js"></script>
+</body>
+</html>

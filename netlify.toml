@@ -10,3 +10,12 @@
   for = "/*.webmanifest"
   [headers.values]
     Content-Type = "application/manifest+json"
+
+# The support inbox: not indexed, never framed, and it only talks to the game's own server.
+[[headers]]
+  for = "/admin*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://gpgmslcjgsollxkmdbgh.supabase.co; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"

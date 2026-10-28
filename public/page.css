@@ -1,5 +1,6 @@
 :root { --bg: #05070e; --panel: #0c1120; --line: rgba(90,140,255,.22); --text: #e6ecff; --muted: #8a94b8; --accent: #ffd23f; --cyan: #3de0ff; }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: radial-gradient(ellipse at top, #10183a, var(--bg) 60%) fixed; color: var(--text); font: 17px/1.55 Rajdhani, system-ui, -apple-system, sans-serif; }
 .doc { max-width: 760px; margin: 0 auto; padding: 28px 16px 60px; }
 h1 { font-family: Orbitron, sans-serif; font-weight: 900; letter-spacing: .04em; color: #fff; text-shadow: 0 0 14px rgba(255,210,63,.6); margin: 18px 0 4px; font-size: clamp(28px, 6vw, 40px); }
@@ -16,3 +17,31 @@ details p { margin: 4px 0 10px; }
 .contact { background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; padding: 12px 14px; }
 .foot { margin-top: 40px; color: var(--muted); font-size: 15px; }
 @media (max-width: 560px) { table, tr, td, th { display: block; } tr { border-bottom: 1px solid var(--line); padding: 6px 0; } th { display: none; } td { border: 0; padding: 3px 0; } }
+
+/* support form (and the admin page's fields) */
+.sform { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+.sform label { font-weight: 700; margin-top: 8px; }
+.sform label:first-child { margin-top: 0; }
+.hint { color: var(--muted); font-weight: 600; }
+.field, .sform input, .sform select, .sform textarea { font: inherit; font-size: 17px; color: var(--text); background: #070b17; border: 1px solid rgba(90,140,255,.38); border-radius: 8px; padding: 10px 12px; width: 100%; }
+.sform textarea { resize: vertical; min-height: 150px; line-height: 1.45; }
+.sform select { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 18px) 55%, calc(100% - 12px) 55%; background-size: 6px 6px; background-repeat: no-repeat; padding-right: 34px; }
+.sform :focus-visible, .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+.sform [aria-invalid="true"] { border-color: #ff5b6e; }
+.err { color: #ff8a98; font-weight: 600; font-size: 15px; margin: 0; }
+.tip { margin: 2px 0 0; padding: 8px 10px; border-radius: 8px; background: rgba(61,224,255,.08); border: 1px solid rgba(61,224,255,.3); font-size: 15px; }
+.sform .row { display: flex; justify-content: space-between; gap: 12px; margin: 0; }
+.count { color: var(--muted); font-size: 14px; margin-left: auto; white-space: nowrap; }
+.fine { color: var(--muted); font-size: 15px; margin: 8px 0 4px; }
+.btn, .sform button { font: 800 14px/1 Orbitron, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #1a1300; background: linear-gradient(180deg, #ffe066, #ffb020); border: 0; border-radius: 10px; padding: 14px 22px; cursor: pointer; }
+.sform button { align-self: flex-start; margin-top: 6px; }
+.btn[disabled], .sform button[disabled] { opacity: .6; cursor: progress; }
+.btn.ghost { color: var(--text); background: transparent; border: 1px solid var(--line); }
+.btn.danger { color: #fff; background: #c8364a; }
+.status { margin: 4px 0 0; min-height: 1.2em; }
+.status.bad { color: #ff8a98; }
+.hp { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+.sent { background: var(--panel); border: 1px solid rgba(61,255,139,.45); border-radius: 12px; padding: 16px; outline: none; }
+.sent .big { font-family: Orbitron, sans-serif; font-weight: 800; font-size: 18px; color: #6dffb0; margin: 0 0 8px; }
+.sent p { margin: 6px 0; }
+@media (max-width: 560px) { .sform button { align-self: stretch; } }

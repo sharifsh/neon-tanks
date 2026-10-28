@@ -23,6 +23,7 @@
     "@capacitor/cli": "8.5.3",
     "@playwright/test": "1.56.0",
     "@supabase/supabase-js": "^2.117.2",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "smtp-server": "3.19.21"
   }
 }
