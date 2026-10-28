@@ -160,6 +160,10 @@ select option { background: var(--option-bg); color: var(--text); }
 .tfire { background: rgba(255,77,94,.25); border: 2px solid rgba(255,77,94,.7); width: 96px !important; height: 96px !important; }
 .tabil { background: rgba(255,210,63,.18); border: 2px solid rgba(255,210,63,.6); pointer-events: auto; }
 .tbtns .on { filter: brightness(1.8); transform: scale(.95); }
+/* quick look at the whole map, just above FIRE (phones, while the view is zoomed in) */
+.tbtns .tpeek { position: absolute; right: 30px; bottom: calc(100% + 12px); width: 56px; height: 56px; pointer-events: auto; color: #c9f4ff; background: rgba(61,224,255,.14); border: 2px solid rgba(61,224,255,.6); -webkit-touch-callout: none; -webkit-user-select: none; }
+.tbtns .tpeek svg { width: 26px; height: 26px; display: block; }
+.tbtns .tpeek.on { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 20%, transparent); }
 
 /* ---------- editor ---------- */
 #editor { display: none; flex-direction: column; overflow: hidden; }
@@ -369,7 +373,7 @@ body.theme-winter .hud-left .t { color: #0f4fa8; }
 .locked-slot { cursor: pointer; } .locked-slot .lock { margin-right: 6px; } .locked-slot:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ---------- phones: short side up to 520px (body.compact, set by main.js) ---------- */
-body.compact .hud-top { height: 36px; padding: 0 calc(8px + env(safe-area-inset-right)) 0 calc(12px + env(safe-area-inset-left)); background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 82%, transparent), color-mix(in srgb, var(--bg) 45%, transparent) 70%, transparent); }
+body.compact .hud-top { height: 44px; padding: 0 calc(8px + env(safe-area-inset-right)) 0 calc(12px + env(safe-area-inset-left)); background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 82%, transparent), color-mix(in srgb, var(--bg) 45%, transparent) 70%, transparent); }
 body.compact .hud-top { --hud-shadow: 0 1px 2px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.75); }
 body.compact.theme-winter .hud-top { --hud-shadow: 0 0 3px rgba(255,255,255,.95), 0 0 8px rgba(255,255,255,.85); }
 body.compact .hud-left, body.compact .hud-center { text-shadow: var(--hud-shadow); }
@@ -384,9 +388,11 @@ body.compact .team-score .m { font-size: 10px; line-height: 1.1; }
 body.compact .team-score.ffa, body.compact .team-score.duel { font-size: 13px; gap: 7px; }
 body.compact .team-score.duel span:first-child, body.compact .team-score.duel span:last-child { font-size: 12px; max-width: 90px; }
 body.compact .hud-right { gap: 6px; }
-body.compact .hud-right .btn.small { padding: 4px 10px; font-size: 14px; line-height: 1.2; min-height: 32px; min-width: 40px; }
+body.compact .hud-right .btn.small { padding: 5px 12px; font-size: 14px; line-height: 1.2; min-height: 40px; min-width: 48px; } /* menu, map and zoom: easy to hit with a thumb */
+body.compact .hud-right .zoom-btn svg { width: 22px; height: 22px; }
+body.compact #btnPause { font-size: 21px; line-height: 1; }
 body.compact .badge { font-size: 10.5px; padding: 2px 6px; }
-body.compact .boss-bar { top: 38px; width: min(420px, 56vw); }
+body.compact .boss-bar { top: 46px; width: min(420px, 56vw); }
 body.compact .hud-bottom { bottom: max(2px, calc(env(safe-area-inset-bottom) - 14px)); gap: 4px; padding: 0 calc(150px + env(safe-area-inset-left)) 0 calc(170px + env(safe-area-inset-right)); }
 body.compact .pchip { font-size: 12px; padding: 2px 8px 2px 5px; gap: 5px; border-radius: 8px; }
 body.compact .pchip .st { font-size: 11.5px; }
@@ -394,12 +400,14 @@ body.compact .pchip .st .sc { display: none; }
 body.compact .pchip .nm { max-width: 76px; }
 body.compact .pchip.mini { padding: 2px 6px 2px 4px; }
 body.compact .pchip.mini .nm, body.compact .pchip.mini .stars { display: none; }
-body.compact .tzone { top: 36px; }
+body.compact .tzone { top: 44px; }
 body.compact .stick { width: 116px; height: 116px; left: calc(16px + env(safe-area-inset-left)); bottom: calc(12px + env(safe-area-inset-bottom)); }
 body.compact .knob { width: 48px; height: 48px; }
 body.compact .tbtns { right: calc(14px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); gap: 10px; }
 body.compact .tbtns > div { width: 62px; height: 62px; font-size: 11px; }
 body.compact .tfire { width: 82px !important; height: 82px !important; }
+body.compact .tbtns .tpeek { width: 50px; height: 50px; right: 26px; bottom: calc(100% + 10px); }
+body.compact .tbtns .tpeek svg { width: 23px; height: 23px; }
 body.compact .toast { bottom: calc(60px + env(safe-area-inset-bottom)); }
 body.compact .overlay { padding: 8px calc(8px + env(safe-area-inset-right)) 8px calc(8px + env(safe-area-inset-left)); }
 @media (max-height: 520px) { #btnStart { position: sticky; bottom: max(8px, env(safe-area-inset-bottom)); z-index: 5; } } /* phones: Start stays in reach while scrolling the lobby */
@@ -410,13 +418,15 @@ body.compact .overlay { padding: 8px calc(8px + env(safe-area-inset-right)) 8px 
 body:not(.compact) .phone-only { display: none !important; }
 .map-btn { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 /* portrait phone (website): controls on a deck below the map */
-body.compact.portrait .hud-top { padding-top: env(safe-area-inset-top); height: calc(38px + env(safe-area-inset-top)); }
+body.compact.portrait .hud-top { padding-top: env(safe-area-inset-top); height: calc(46px + env(safe-area-inset-top)); }
 body.compact.portrait .tdeck { display: block; position: absolute; left: 0; right: 0; bottom: 0; height: calc(176px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg) 90%, transparent); border-top: 1px solid var(--line); }
 body.compact.portrait .tzone { top: auto; bottom: 0; height: calc(176px + env(safe-area-inset-bottom)); }
 body.compact.portrait .stick { left: 22px; bottom: calc(28px + env(safe-area-inset-bottom)); width: 122px; height: 122px; }
-body.compact.portrait .tbtns { right: 18px; bottom: calc(30px + env(safe-area-inset-bottom)); }
+body.compact.portrait .tbtns { right: 18px; bottom: calc(22px + env(safe-area-inset-bottom)); }
+body.compact.portrait .tbtns .tpeek { width: 46px; height: 46px; bottom: calc(100% + 8px); }
 body.compact.portrait .hud-bottom { bottom: calc(182px + env(safe-area-inset-bottom)); padding: 0 8px; }
-body.compact.portrait .boss-bar { top: calc(40px + env(safe-area-inset-top)); width: 80vw; }
+body.compact.portrait .hud-left.vs { display: none; } /* versus modes: the score board needs the width, and it already shows the mode */
+body.compact.portrait .boss-bar { top: calc(48px + env(safe-area-inset-top)); width: 80vw; }
 body.compact.portrait .toast { bottom: calc(220px + env(safe-area-inset-bottom)); }
 body.compact.portrait .banner { top: 30%; }
 /* level editor on phones: one scrolling toolbar row, so the map gets the height */

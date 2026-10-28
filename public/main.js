@@ -85,7 +85,7 @@ if (matchMedia('(hover: none) and (pointer: coarse)').matches) {
 function layoutGame() {
   const { compact, portrait } = applyDeviceClasses();
   $('#btnZoom').classList.toggle('hidden', !compact);
-  $('#btnMap').classList.toggle('hidden', !compact || zoom === 'fit');
+  showPeekBtns(compact && zoom !== 'fit');
   if (!compact) endPeek();
   if (!compact) { renderer.setFrame(null); return; }
   const sa = safeArea(), top = Math.max(sa.t, $('#hudTop').getBoundingClientRect().bottom);
@@ -98,30 +98,41 @@ function layoutGame() {
 function setZoom(z, announce) {
   zoom = z; store.set('nt_zoom', z); renderer.setZoom(z);
   $('#btnZoom').classList.toggle('zout', ZOOM_ORDER[(ZOOM_ORDER.indexOf(z) + 1) % ZOOM_ORDER.length] === 'fit');
-  $('#btnMap').classList.toggle('hidden', !isCompact() || z === 'fit');
+  showPeekBtns(isCompact() && z !== 'fit');
   endPeek();
   if (announce) toast(ZOOM_NAMES[z], 1200);
 }
 $('#btnZoom').onclick = () => setZoom(ZOOM_ORDER[(ZOOM_ORDER.indexOf(zoom) + 1) % ZOOM_ORDER.length], true);
-// Map button: a quick look at the whole map. Tap: the whole map for a moment, then back to your tank
-// (tap again to go back sooner). Hold: the whole map until you let go.
-let peekTimer = 0, peekDown = 0;
-function setPeek(on) { renderer.peek = on; $('#btnMap').classList.toggle('on', on); }
-function endPeek() { clearTimeout(peekTimer); peekTimer = 0; peekDown = 0; setPeek(false); }
-$('#btnMap').addEventListener('pointerdown', e => {
-  e.preventDefault();
-  if (renderer.peek && peekTimer) { endPeek(); return; }
-  clearTimeout(peekTimer); peekTimer = 0;
-  peekDown = performance.now(); setPeek(true);
-});
-const peekUp = () => {
-  if (!peekDown) return;
-  const held = performance.now() - peekDown; peekDown = 0;
-  if (held > 400) endPeek(); else peekTimer = setTimeout(endPeek, 2500);
-};
-$('#btnMap').addEventListener('pointerup', peekUp);
-$('#btnMap').addEventListener('pointercancel', peekUp);
-$('#btnMap').addEventListener('contextmenu', e => e.preventDefault());
+// Map buttons (top right, and the round one just above FIRE): a quick look at the whole map. Tap: the whole
+// map for a moment, then back to your tank (tap again to go back sooner). Hold: the whole map until you let go.
+// They only show while the view is zoomed in.
+const peekBtns = [$('#btnMap'), $('#touch .tpeek')];
+function showPeekBtns(on) { for (const b of peekBtns) b.classList.toggle('hidden', !on); }
+let peekTimer = 0, peekDown = 0, peekPointer = null;
+function setPeek(on) { renderer.peek = on; for (const b of peekBtns) b.classList.toggle('on', on); }
+function endPeek() { clearTimeout(peekTimer); peekTimer = 0; peekDown = 0; peekPointer = null; setPeek(false); }
+for (const b of peekBtns) {
+  b.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (peekDown && e.pointerId !== peekPointer) return; // another finger already holds a map button
+    try { b.setPointerCapture(e.pointerId); } catch (err) { /* not capturable: the up event still arrives in most cases */ }
+    if (renderer.peek && peekTimer) { endPeek(); return; }
+    clearTimeout(peekTimer); peekTimer = 0;
+    peekDown = e.timeStamp || performance.now(); peekPointer = e.pointerId; setPeek(true);
+  });
+  // the button keeps the pointer until it lifts, so letting go over the map or an overlay still counts;
+  // tap or hold is judged by when the finger actually went down and up, not by when a busy frame got to it
+  const up = e => {
+    if (!peekDown || e.pointerId !== peekPointer) return;
+    const held = (e.timeStamp || performance.now()) - peekDown; peekDown = 0; peekPointer = null;
+    if (held > 400) endPeek(); else peekTimer = setTimeout(endPeek, 2500);
+  };
+  b.addEventListener('pointerup', up);
+  b.addEventListener('pointercancel', up);
+  b.addEventListener('lostpointercapture', up);
+  b.addEventListener('contextmenu', e => e.preventDefault());
+}
+peekBtns[1].addEventListener('touchstart', e => e.preventDefault(), { passive: false }); // no long-press loupe while held
 setZoom(zoom);
 // Phone browsers (not the app): go full screen on the first touch in a game so the address and navigation
 // bars don't take space. Works in Chrome on Android; Safari on iPhone has no full screen for web pages.
@@ -901,6 +912,7 @@ function updateHud(h, force) {
   if (h.mode === 'classic') $('#hudLeft').innerHTML = `<span class="t">STAGE ${h.stage}</span> <span class="s">${esc(h.title || '')}${dname}</span>`;
   else if (h.mode === 'survival') $('#hudLeft').innerHTML = `<span class="t">WAVE ${h.wave}</span> <span class="s">Survival${dname}</span>`;
   else $('#hudLeft').innerHTML = `<span class="t">${MODES[h.mode].name.toUpperCase()}</span> <span class="s">${esc(h.title || '')}${dname}</span>`;
+  $('#hudLeft').classList.toggle('vs', h.mode !== 'classic' && h.mode !== 'survival'); // the score board says the mode; upright phones drop the label
   const clock = sec => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
   if (h.mode === 'deathmatch') {
     const L = h.ffa && h.ffa.leader, mine = h.players.filter(p => localIds().has(p[0])).map(p => p[9]);

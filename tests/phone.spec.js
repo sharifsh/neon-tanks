@@ -22,6 +22,8 @@ const view = page => page.evaluate(() => {
   const k = r.scale, at = me ? { x: (r.ox + (me.x + me.size / 2) * r.scs) / k, y: (r.oy + (me.y + me.size / 2) * r.scs) / k } : null;
   return { compact: r.compact, scs: r.scs, fit: r.fitScs, zoom: r.zoomScs, rect: { l: r.rect.l / k, t: r.rect.t / k, r: r.rect.r / k, b: r.rect.b / k }, tank: at, w: innerWidth, h: innerHeight };
 });
+// freeze the enemies (no new ones either), so a slow test machine can't lose the game midway and pull the view back
+const calm = page => page.evaluate(() => { const g = window.__nt.game; g.freezeUntil = g.time + 600; });
 // open a corridor around the player's tank and freeze the enemies, so the tank can drive freely
 const clearAround = page => page.evaluate(() => {
   const g = window.__nt.game, me = g.tanks.find(t => t.kind === 'player');
@@ -36,6 +38,12 @@ const touch = async page => {
     start: pts => cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts.map(p => pt(...p)) }),
     move: pts => cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts.map(p => pt(...p)) }),
     end: () => cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }),
+    // a quick tap, stamped 80 ms long however slowly a busy test machine delivers it
+    tap: async (id, x, y) => {
+      const t0 = Date.now() / 1000;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pt(id, x, y)], timestamp: t0 });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: t0 + 0.08 });
+    },
   };
 };
 
@@ -45,9 +53,14 @@ test.describe('phone, landscape', () => {
   test('the view zooms in on your tank, the HUD is slim and the zoom button cycles (and is remembered)', async ({ page }) => {
     const hits = await open(page, {});
     await startSolo(page);
+    await calm(page);
     await expect(page.locator('body')).toHaveClass(/compact/);
     await expect(page.locator('#btnZoom')).toBeVisible();
-    expect(await page.locator('#hudTop').evaluate(e => e.getBoundingClientRect().height)).toBeLessThanOrEqual(40);
+    expect(await page.locator('#hudTop').evaluate(e => e.getBoundingClientRect().height)).toBeLessThanOrEqual(46);
+    for (const id of ['#btnMap', '#btnZoom', '#btnPause']) { // the corner buttons are easy to hit with a thumb
+      const r = await page.locator(id).boundingBox();
+      expect(r.height, id).toBeGreaterThanOrEqual(40); expect(r.width, id).toBeGreaterThanOrEqual(44);
+    }
     const v = await view(page);
     expect(v.compact).toBe(true);
     expect(v.scs).toBeGreaterThan(v.fit * 1.3); // about 18 px per cell on a 402 px tall screen
@@ -137,6 +150,44 @@ test.describe('phone, landscape', () => {
     expect(await page.evaluate(() => window.__input.touch.d)).toBe(-1);
   });
 
+  test('the round map button just above FIRE: a quick look at the whole map without firing; hold it to keep looking', async ({ page }) => {
+    await open(page, {});
+    await page.evaluate(() => localStorage.setItem('nt_zoom', 'close'));
+    await startSolo(page);
+    await clearAround(page);
+    const peek = page.locator('#touch .tpeek');
+    await expect(peek).toBeVisible();
+    const fire = await page.locator('#touch .tfire').boundingBox(), pb = await peek.boundingBox();
+    expect(pb.y + pb.height).toBeLessThanOrEqual(fire.y); // just above FIRE
+    expect(fire.y - (pb.y + pb.height)).toBeLessThan(24);
+    expect(pb.x + pb.width / 2).toBeGreaterThan(fire.x - 10); expect(pb.x + pb.width / 2).toBeLessThan(fire.x + fire.width);
+    expect(pb.width).toBeGreaterThanOrEqual(44);
+    const t = await touch(page), px = pb.x + pb.width / 2, py = pb.y + pb.height / 2;
+    // tap: the whole map for a moment, then back to the tank by itself; both map buttons light up
+    await t.tap(5, px, py);
+    await page.waitForFunction(() => window.__r.peek, null, { timeout: 2000 });
+    await expect(peek).toHaveClass(/on/); await expect(page.locator('#btnMap')).toHaveClass(/on/);
+    await page.waitForFunction(() => window.__r.scs < (window.__r.zoomScs + window.__r.fitScs) / 2, null, { timeout: 4000 });
+    await page.waitForFunction(() => !window.__r.peek && Math.abs(window.__r.scs - window.__r.zoomScs) < 0.5, null, { timeout: 8000 });
+    await expect(peek).not.toHaveClass(/on/);
+    // hold it while steering with the other thumb: the whole map until you let go, and no shots
+    const st = await page.locator('#touch .stick').boundingBox(), sx = st.x + st.width / 2, sy = st.y + st.height / 2;
+    await t.start([[5, px, py]]);
+    await t.start([[5, px, py], [1, sx, sy + 4]]);
+    await t.move([[5, px, py], [1, sx + 2, sy - 50]]);
+    expect(await page.evaluate(() => window.__input.touch)).toMatchObject({ d: 0, f: false });
+    await expect(page.locator('#touch .tfire')).not.toHaveClass(/on/);
+    await page.waitForFunction(() => window.__r.peek && Math.abs(window.__r.scs - window.__r.fitScs) < 0.5, null, { timeout: 8000 });
+    await page.waitForTimeout(3000);
+    expect(await page.evaluate(() => window.__r.peek)).toBe(true);
+    await t.end();
+    await page.waitForFunction(() => !window.__r.peek, null, { timeout: 6000 });
+    // showing the whole map anyway (zoom button): no map buttons
+    await page.evaluate(() => { document.querySelector('#btnZoom').click(); document.querySelector('#btnZoom').click(); });
+    expect(await page.evaluate(() => window.__r.zoom)).toBe('fit');
+    await expect(peek).toBeHidden(); await expect(page.locator('#btnMap')).toBeHidden();
+  });
+
   test('settings: the joystick choice is remembered', async ({ page }) => {
     await open(page, {});
     await page.click('#btnSettings');
@@ -169,6 +220,7 @@ test.describe('phone, portrait (website)', () => {
     await open(page, { native: false });
     await page.evaluate(() => localStorage.setItem('nt_zoom', 'close'));
     await startSolo(page);
+    await calm(page);
     await expect(page.locator('#touch .tdeck')).toBeVisible();
     const deckTop = await page.locator('#touch .tdeck').evaluate(e => e.getBoundingClientRect().top);
     const v = await view(page);
@@ -178,6 +230,9 @@ test.describe('phone, portrait (website)', () => {
     expect(await page.evaluate(() => [window.__nt.game.mapW, window.__nt.game.mapH])).toEqual([26, 26]); // solo plays the small square field
     expect(v.scs).toBeGreaterThan(v.fit * 1.4); // zoomed in: about 16 cells across the width
     expect(v.scs / 2).toBeGreaterThanOrEqual(22);
+    // the round map button sits on the deck, just above FIRE
+    const pb = await page.locator('#touch .tpeek').boundingBox(), fb = await page.locator('#touch .tfire').boundingBox();
+    expect(pb.y).toBeGreaterThanOrEqual(deckTop + 6); expect(pb.y + pb.height).toBeLessThanOrEqual(fb.y);
     // tap the map button: the whole map, then back to the tank by itself
     await expect(page.locator('#btnMap')).toBeVisible();
     const box = await page.locator('#btnMap').boundingBox();
@@ -198,6 +253,26 @@ test.describe('phone, portrait (website)', () => {
     await page.evaluate(() => { document.querySelector('#btnZoom').click(); document.querySelector('#btnZoom').click(); });
     expect(await page.evaluate(() => window.__r.zoom)).toBe('fit');
     await expect(page.locator('#btnMap')).toBeHidden();
+    await expect(page.locator('#touch .tpeek')).toBeHidden();
+  });
+  test('upright, versus modes: the score board and the bigger corner buttons never overlap', async ({ page }) => {
+    const hits = await open(page, { owned: true });
+    for (const mode of ['deathmatch', 'duel', 'battle']) {
+      await page.fill('#nameInput', 'Tester'); await page.click('#btnSolo');
+      await page.locator(`#modePicker .mode[data-mode="${mode}"]`).click();
+      for (let i = 0; i < 3; i++) await page.click('#setupNext');
+      await page.click('#setupNext');
+      await expect(page.locator('#game')).toHaveClass(/active/);
+      await page.waitForFunction(() => document.querySelector('#hudCenter .team-score'));
+      const box = s => page.locator(s).evaluate(e => { const b = e.getBoundingClientRect(); return { l: b.left, r: b.right, w: b.width, sw: e.scrollWidth }; });
+      const left = await box('#hudLeft'), center = await box('#hudCenter'), right = await box('#hudTop .hud-right');
+      expect(center.r, mode).toBeLessThanOrEqual(right.l);
+      expect(center.sw, mode).toBeLessThanOrEqual(center.w + 1); // nothing spills out of the board
+      if (left.w > 0) { expect(left.r, mode).toBeLessThanOrEqual(center.l); expect(left.sw, mode).toBeLessThanOrEqual(left.w + 1); } // the mode label is dropped or fits
+      await page.click('#btnPause'); await page.click('#btnQuit');
+      await expect(page.locator('#menu')).toHaveClass(/active/);
+    }
+    expect(hits).toEqual([]);
   });
 });
 
