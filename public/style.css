@@ -405,6 +405,9 @@ body.compact .overlay { padding: 8px calc(8px + env(safe-area-inset-right)) 8px 
 .zoom-btn { display: inline-flex; align-items: center; justify-content: center; }
 .zoom-btn svg { display: block; }
 .zoom-btn.zout .zv { display: none; }
+.map-btn.on { color: var(--accent); border-color: var(--accent); box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 45%, transparent); }
+body:not(.compact) .phone-only { display: none !important; }
+.map-btn { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 /* portrait phone (website): controls on a deck below the map */
 body.compact.portrait .hud-top { padding-top: env(safe-area-inset-top); height: calc(38px + env(safe-area-inset-top)); }
 body.compact.portrait .tdeck { display: block; position: absolute; left: 0; right: 0; bottom: 0; height: calc(176px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg) 90%, transparent); border-top: 1px solid var(--line); }

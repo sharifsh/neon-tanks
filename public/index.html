@@ -67,7 +67,7 @@
           <div><b>Move</b> put your left thumb down anywhere on the left side and slide it</div>
           <div><b>Fire</b> touch and hold anywhere on the right side</div>
           <div><b>Ability</b> the ABL button</div>
-          <div><b>View</b> 🔍 switches between close and the whole map</div>
+          <div class="phone-only"><b>View</b> 🔍 zooms in or out · the map button shows the whole map (tap for a quick look, or hold it)</div>
         </div>
         <p>Protect your core. Flashing enemies drop power-ups: <span class="pu star">Power Up</span> <span class="pu helmet">Shield</span> <span class="pu grenade">Nuke</span> <span class="pu shovel">Fortify</span> <span class="pu clock">Freeze</span> <span class="pu tank">+1 Life</span>. Stars stack: faster shells → double shot → steel-piercing. Shooting a teammate freezes them briefly, just like the original.</p>
       </details>
@@ -153,7 +153,7 @@
   <div id="hudTop" class="hud-top">
     <div id="hudLeft" class="hud-left"></div>
     <div id="hudCenter" class="hud-center"></div>
-    <div class="hud-right"><button id="btnJoinPlay" class="btn small primary hidden">Join game</button><span id="netBadge" class="badge hidden"></span><button id="btnZoom" class="btn small ghost zoom-btn hidden" aria-label="Zoom"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path class="zv" d="M10.5 7.5v6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M7.5 10.5h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button><button id="btnPause" class="btn small ghost">☰</button></div>
+    <div class="hud-right"><button id="btnJoinPlay" class="btn small primary hidden">Join game</button><span id="netBadge" class="badge hidden"></span><button id="btnMap" class="btn small ghost zoom-btn map-btn hidden" aria-label="Whole map (tap for a quick look, or hold)" title="Whole map"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3.5 6.2 9 4l6 2.2L20.5 4v13.8L15 20l-6-2.2-5.5 2.2z" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linejoin="round"/><path d="M9 4v13.8M15 6.2V20" stroke="currentColor" stroke-width="2.1"/></svg></button><button id="btnZoom" class="btn small ghost zoom-btn hidden" aria-label="Zoom"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path class="zv" d="M10.5 7.5v6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M7.5 10.5h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button><button id="btnPause" class="btn small ghost">☰</button></div>
   </div>
   <div id="bossBar" class="boss-bar hidden"><div class="boss-label">TITAN</div><div class="boss-track"><div id="bossFill"></div></div></div>
   <div id="banner" class="banner"><div id="bannerText"></div><div id="bannerSub"></div></div>

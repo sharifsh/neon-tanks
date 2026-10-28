@@ -4,8 +4,10 @@ import { teleportPads } from './levels.js';
 import { THEMES, NEON, TAU, rgba, rr, hex, drawIcon, lighten } from './themes.js';
 
 const PU_COLORS = { star: '#ffd23f', helmet: '#3de0ff', grenade: '#ff4d5e', shovel: '#ff9b3d', clock: '#a98bff', tank: '#3dff8b' };
-// Phone view: how many map cells fit across the short side of the screen at each zoom level
+// Phone view: how many map cells fit across the short side of the screen at each zoom level.
+// Upright, the short side is the narrow width, so the view zooms in further there.
 export const ZOOMS = { close: 22, near: 17, fit: 0 };
+export const ZOOMS_UPRIGHT = { close: 16, near: 13, fit: 0 };
 const LAYER_BUDGET = 4.5e6; // max pixels per pre-rendered map layer when zoomed in (keeps phone memory in check)
 const AHEAD = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 const PU_LABEL = { star: 'POWER UP', helmet: 'SHIELD', grenade: 'NUKE', shovel: 'FORTIFY', clock: 'FREEZE', tank: '+1 LIFE' };
@@ -33,6 +35,7 @@ export class Renderer {
     this.trackPos = new Map(); this.decalFade = 0; this.weather = [];
     this.theme = current;
     this.frameInfo = null; this.frameKey = ''; this.zoom = 'close'; this.dprCap = 3;
+    this.peek = false; // quick look: show the whole map for a moment, then glide back to your tank
     this.cam = { x: 0, y: 0, s: 0, lx: 0, ly: 0, init: false }; this.baseSeen = new Map();
     this.resize();
   }
@@ -61,7 +64,7 @@ export class Renderer {
       : { l: 14 * k, t: 58 * k, r: cw - 14 * k, b: ch - 64 * k };
     const rw = Math.max(40, this.rect.r - this.rect.l), rh = Math.max(40, this.rect.b - this.rect.t);
     this.fitScs = Math.max(4, Math.floor(Math.min(rw / W, rh / H)));
-    const across = this.compact ? ZOOMS[this.zoom] : 0;
+    const across = this.compact ? (ch > cw ? ZOOMS_UPRIGHT : ZOOMS)[this.zoom] : 0;
     this.zoomScs = across ? Math.max(this.fitScs, Math.round(Math.min(cw, ch) / across)) : this.fitScs;
     // a map that nearly fits (a small square map in portrait) is shown whole instead of scrolling a few cells
     if (this.zoom === 'close' && this.fitScs >= this.zoomScs * 0.8) this.zoomScs = this.fitScs;
@@ -373,7 +376,7 @@ export class Renderer {
   updateCamera(view, dt, localId) {
     const r = this.rect, rw = r.r - r.l, rh = r.b - r.t, cam = this.cam;
     let ts = this.fitScs, tx = W / 2, ty = H / 2;
-    if (this.compact && this.zoomScs > this.fitScs) {
+    if (this.compact && this.zoomScs > this.fitScs && !this.peek) {
       const has = id => !!(id && localId && (localId.has ? localId.has(id) : id === localId));
       const mine = view.tk.filter(t => has(t[10]));
       if (mine.length) {

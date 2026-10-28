@@ -170,10 +170,12 @@ export function generateMap(layoutType, seed, difficulty = 1) {
     }
     mirrorGrid(grid, layoutType === 'D' || layoutType === 'U');
     applyLayout(grid, layout);
-    if (checkConnectivity(grid, layout)) return { layout: layoutType, grid };
+    addCover(grid, layout);
+    if (checkConnectivity(grid, layout) && coreShielded(grid, layout)) return { layout: layoutType, grid };
   }
   const grid = new Uint8Array(W * H);
   applyLayout(grid, layout);
+  addCover(grid, layout);
   return { layout: layoutType, grid };
 }
 export function mirrorGrid(grid, vertical) {
@@ -236,6 +238,75 @@ function nearBase(seen, b) {
   for (let y = b.y - 3; y <= b.y + 3; y++) for (let x = b.x - 3; x <= b.x + 3; x++)
     if (x >= 0 && y >= 0 && x < W && y < H && seen[y * W + x]) return true;
   return false;
+}
+
+// ---------- lines of fire ----------
+// A shot flies along a tank's centre line and is stopped by brick or steel in either of the two cells
+// beside that line. Tanks only shoot straight, so two 2×2 tanks can hit each other only when they share
+// a row or a column.
+const stops = (v, steelOnly) => v === T.STEEL || (!steelOnly && v === T.BRICK);
+// Is there anything between two lined-up 2×2 footprints that stops a shot? (Not lined up: no straight shot.)
+export function lineCovered(grid, a, b, steelOnly = false) {
+  if (a.y === b.y) {
+    for (let x = Math.min(a.x, b.x) + 2; x < Math.max(a.x, b.x); x++)
+      if (stops(grid[a.y * W + x], steelOnly) || stops(grid[(a.y + 1) * W + x], steelOnly)) return true;
+    return false;
+  }
+  if (a.x === b.x) {
+    for (let y = Math.min(a.y, b.y) + 2; y < Math.max(a.y, b.y); y++)
+      if (stops(grid[y * W + a.x], steelOnly) || stops(grid[y * W + a.x + 1], steelOnly)) return true;
+    return false;
+  }
+  return true;
+}
+// Co-op: an enemy that appears in the middle of the top (or the Titan) must not have a clear shot at the
+// core. Steel (which enemy shells can't break) somewhere in the core's column, between the spawns and
+// the brick ring, blocks it for good.
+export function coreShielded(grid, layout) {
+  if (layout.type !== 'C') return true;
+  const b = layout.bases[0], top = layout.bossSpawn ? layout.bossSpawn.y + 4 : 2;
+  for (let y = top; y < b.y - 2; y++) if (stops(grid[y * W + b.x], true) || stops(grid[y * W + b.x + 1], true)) return true;
+  return false;
+}
+// PvP: pairs of rival spawn points with a clear shot at each other (should be none)
+export function openSpawnLines(grid, layout) {
+  if (layout.type === 'C') return [];
+  // team maps: the two teams; deathmatch: everyone; duel: the two duellists (the other two points are unused)
+  const sides = layout.type === 'A' ? layout.playerSpawns : layout.playerSpawns[0].slice(0, layout.type === 'U' ? 2 : 8).map(s => [s]);
+  const out = [];
+  for (let i = 0; i < sides.length; i++) for (let j = i + 1; j < sides.length; j++)
+    for (const a of sides[i]) for (const b of sides[j])
+      if ((a.x === b.x || a.y === b.y) && !lineCovered(grid, a, b)) out.push([a, b]);
+  return out;
+}
+// Random maps: add the cover the checks above ask for (steel in the core's column for co-op, a brick
+// block between rival spawns for PvP), mirrored so the map stays fair. Cells that must stay clear are skipped.
+function addCover(grid, layout) {
+  const reserved = reservedMask(layout);
+  const free2 = (x, y) => { for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) { const xx = x + i, yy = y + j; if (xx < 0 || yy < 0 || xx >= W || yy >= H || reserved[yy * W + xx]) return false; } return true; };
+  const put = (x, y, v) => { for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) grid[(y + j) * W + x + i] = v; };
+  const mirrors = (x, y) => layout.type === 'A' ? [[x, y], [W - 2 - x, y]] : [[x, y], [W - 2 - x, y], [x, H - 2 - y], [W - 2 - x, H - 2 - y]];
+  if (layout.type === 'C') {
+    if (coreShielded(grid, layout)) return;
+    const b = layout.bases[0], top = (layout.bossSpawn ? layout.bossSpawn.y + 4 : 2);
+    const rows = []; for (let y = top; y + 1 < b.y - 2; y += 2) rows.push(y);
+    rows.sort((p, q) => Math.abs(p - H * 0.42) - Math.abs(q - H * 0.42));
+    const y = rows.find(y => free2(b.x, y));
+    if (y !== undefined) put(b.x, y, T.STEEL);
+    return;
+  }
+  for (let guard = 0; guard < 16; guard++) {
+    const open = openSpawnLines(grid, layout);
+    if (!open.length) return;
+    const [a, c] = open[0], horiz = a.y === c.y;
+    const from = horiz ? Math.min(a.x, c.x) + 2 : Math.min(a.y, c.y) + 2, to = horiz ? Math.max(a.x, c.x) - 2 : Math.max(a.y, c.y) - 2;
+    const spots = []; for (let v = from; v <= to; v += 2) spots.push(v);
+    // nearest the first spawn, but not touching it: cover right in front of a spawn point
+    spots.sort((p, q) => Math.abs(p - from - 2) - Math.abs(q - from - 2));
+    const at = spots.find(v => (horiz ? free2(v, a.y) : free2(a.x, v)));
+    if (at === undefined) return;
+    for (const [x, y] of mirrors(horiz ? at : a.x, horiz ? a.y : at)) if (free2(x, y)) put(x, y, T.BRICK);
+  }
 }
 
 export function checkConnectivity(grid, layout) {

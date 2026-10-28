@@ -1,0 +1,105 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>splash</title>
+<style>
+@font-face { font-family: 'Orbitron'; font-weight: 800; src: url(/public/fonts/orbitron-latin-800-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Orbitron'; font-weight: 900; src: url(/public/fonts/orbitron-latin-900-normal.woff2) format('woff2'); }
+html, body { margin: 0; background: #05070e; }
+canvas { display: block; }
+</style></head>
+<body>
+<canvas id="c" width="2732" height="2732"></canvas>
+<script>
+// Launch screen for iOS and Android (2732×2732, cropped to fill each screen).
+// Everything that matters sits in the middle ~1100 px, which every phone shows upright and on its side
+// (a 19.5:9 iPhone keeps a 1261 px wide strip of the square upright, a 1261 px tall strip sideways).
+const S = 2732, C = S / 2, TAU = Math.PI * 2;
+const g = document.getElementById('c').getContext('2d');
+const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+
+function background() {
+  const bg = g.createRadialGradient(C, C * 0.92, 0, C, C, S * 0.75);
+  bg.addColorStop(0, '#0f1d42'); bg.addColorStop(0.45, '#0a1330'); bg.addColorStop(1, '#05070e');
+  g.fillStyle = bg; g.fillRect(0, 0, S, S);
+  // the game's grid floor, lines centred on the middle so the crop is symmetric
+  const step = S / 12;
+  g.lineWidth = 3;
+  for (let i = -6; i <= 6; i++) {
+    const p = C + i * step;
+    const a = 0.16 - Math.abs(i) * 0.012;
+    g.strokeStyle = `rgba(70,120,255,${a.toFixed(3)})`;
+    g.beginPath(); g.moveTo(p, 0); g.lineTo(p, S); g.stroke();
+    g.beginPath(); g.moveTo(0, p); g.lineTo(S, p); g.stroke();
+  }
+}
+
+// The app icon's tank (drawn in its 1024-unit space), centred at cx,cy and scaled by s.
+function emblem(cx, cy, s) {
+  const X = v => cx + (v - 512) * s, Y = v => cy + (v - 512) * s, L = v => v * s;
+  const halo = g.createRadialGradient(cx, cy, 0, cx, cy, L(560));
+  halo.addColorStop(0, 'rgba(255,196,64,0.22)'); halo.addColorStop(0.55, 'rgba(255,160,40,0.07)'); halo.addColorStop(1, 'rgba(255,160,40,0)');
+  g.fillStyle = halo; g.fillRect(cx - L(600), cy - L(600), L(1200), L(1200));
+  // ring
+  g.save(); g.lineWidth = L(12); g.strokeStyle = '#3aa8c8'; g.shadowColor = 'rgba(61,224,255,0.75)'; g.shadowBlur = L(26);
+  g.beginPath(); g.arc(cx, cy, L(415), 0, TAU); g.stroke(); g.restore();
+  const yellow = '#ffd23f';
+  const glowStroke = (w) => { g.save(); g.lineWidth = L(w); g.strokeStyle = yellow; g.shadowColor = 'rgba(255,186,40,0.9)'; g.shadowBlur = L(34); g.stroke(); g.restore(); };
+  // tracks
+  for (const tx of [210, 680]) {
+    rr(X(tx), Y(228), L(135), L(607), L(64));
+    const tg = g.createLinearGradient(0, Y(228), 0, Y(835)); tg.addColorStop(0, '#4d4727'); tg.addColorStop(1, '#2b291b');
+    g.fillStyle = tg; g.fill(); glowStroke(22);
+    g.fillStyle = '#c4a33e';
+    for (const ry of [345, 420, 495, 570, 645, 720, 795]) g.fillRect(X(tx + 25), Y(ry) - L(9), L(85), L(18));
+  }
+  // hull
+  rr(X(345), Y(290), L(335), L(515), L(56));
+  const hg = g.createLinearGradient(X(345), Y(290), X(680), Y(805)); hg.addColorStop(0, '#a08c3a'); hg.addColorStop(1, '#4a4529');
+  g.fillStyle = hg; g.fill(); glowStroke(22);
+  // barrel
+  rr(X(477), Y(232), L(70), L(280), L(14));
+  const bgr = g.createLinearGradient(X(477), 0, X(547), 0); bgr.addColorStop(0, '#d9c46a'); bgr.addColorStop(0.5, '#fff6c8'); bgr.addColorStop(1, '#d9c46a');
+  g.fillStyle = bgr; g.fill();
+  g.save(); g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = L(6); g.shadowColor = '#fff'; g.shadowBlur = L(16);
+  g.beginPath(); g.moveTo(X(512), Y(244)); g.lineTo(X(512), Y(470)); g.stroke(); g.restore();
+  // turret
+  g.save(); g.beginPath(); g.arc(X(512), Y(572), L(128), 0, TAU);
+  const tr = g.createRadialGradient(X(486), Y(540), L(6), X(512), Y(572), L(128));
+  tr.addColorStop(0, '#fffbe6'); tr.addColorStop(0.18, '#ffe98a'); tr.addColorStop(0.6, '#ffd23f'); tr.addColorStop(1, '#c79a1d');
+  g.fillStyle = tr; g.shadowColor = 'rgba(255,200,60,0.85)'; g.shadowBlur = L(30); g.fill(); g.restore();
+  g.lineWidth = L(14); g.strokeStyle = '#eee5c6'; g.beginPath(); g.arc(X(512), Y(572), L(128), 0, TAU); g.stroke();
+  g.save(); g.fillStyle = '#fff'; g.shadowColor = '#fff'; g.shadowBlur = L(30); g.beginPath(); g.arc(X(486), Y(540), L(22), 0, TAU); g.fill(); g.restore();
+}
+
+// The menu's logo: "N E O N" in cyan, "TANKS" glowing white over yellow and orange
+function title(cy) {
+  g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+  // NEON, wide letter spacing (drawn letter by letter so the spacing is exact)
+  g.font = '800 70px Orbitron';
+  const letters = 'NEON'.split(''), gap = 70 * 0.9;
+  const widths = letters.map(l => g.measureText(l).width), total = widths.reduce((a, b) => a + b, 0) + gap * (letters.length - 1);
+  let x = C - total / 2;
+  g.save(); g.fillStyle = '#3de0ff'; g.shadowColor = 'rgba(61,224,255,0.9)'; g.shadowBlur = 24;
+  letters.forEach((l, i) => { g.textAlign = 'left'; g.fillText(l, x, cy - 250); x += widths[i] + gap; });
+  g.restore();
+  // TANKS, sized to a fixed width
+  let size = 230; g.font = `900 ${size}px Orbitron`;
+  const want = 860, spacing = 0.06;
+  const wOf = sz => { g.font = `900 ${sz}px Orbitron`; return [...'TANKS'].reduce((a, l) => a + g.measureText(l).width, 0) + sz * spacing * 4; };
+  size = Math.floor(size * want / wOf(size)); g.font = `900 ${size}px Orbitron`;
+  const draw = () => { let xx = C - wOf(size) / 2; g.font = `900 ${size}px Orbitron`; g.textAlign = 'left'; for (const l of 'TANKS') { g.fillText(l, xx, cy); xx += g.measureText(l).width + size * spacing; } };
+  for (const [blur, color] of [[160, 'rgba(255,138,0,0.55)'], [84, 'rgba(255,210,63,0.75)'], [36, 'rgba(255,210,63,0.95)'], [12, '#fff']]) {
+    g.save(); g.fillStyle = '#fff'; g.shadowColor = color; g.shadowBlur = blur; draw(); g.restore();
+  }
+  window.titleInfo = { size, width: wOf(size) };
+}
+
+(async () => {
+  await document.fonts.load('900 100px Orbitron'); await document.fonts.load('800 100px Orbitron');
+  window.fontsOk = document.fonts.check('900 100px Orbitron') && document.fonts.check('800 100px Orbitron');
+  background();
+  emblem(C, C - 190, 0.62);
+  title(C + 420);
+  window.done = true;
+})();
+</script>
+</body></html>

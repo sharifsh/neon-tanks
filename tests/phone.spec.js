@@ -113,7 +113,7 @@ test.describe('phone, landscape', () => {
 
 test.describe('phone, portrait (website)', () => {
   test.use({ ...PHONE, viewport: { width: 402, height: 874 } });
-  test('the whole small square map shows above a deck with the controls', async ({ page }) => {
+  test('upright: a zoomed view above the controls deck; the map button shows the whole map for a moment', async ({ page }) => {
     await open(page, { native: false });
     await page.evaluate(() => localStorage.setItem('nt_zoom', 'close'));
     await startSolo(page);
@@ -122,12 +122,29 @@ test.describe('phone, portrait (website)', () => {
     const v = await view(page);
     expect(v.rect.b).toBeLessThanOrEqual(deckTop + 1);
     expect(v.tank.y).toBeLessThan(deckTop);
-    const m = await page.evaluate(() => ({ W: window.__nt.game.mapW, H: window.__nt.game.mapH, ox: window.__r.ox / window.__r.scale, oy: window.__r.oy / window.__r.scale }));
-    expect([m.W, m.H]).toEqual([26, 26]); // solo plays the small square field
-    expect(v.scs).toBe(v.fit); // nothing scrolls: the whole map is on screen
-    expect(v.scs / 2).toBeGreaterThanOrEqual(14);
-    expect(m.ox).toBeGreaterThanOrEqual(-1); expect(m.ox + m.W * v.scs / 2).toBeLessThanOrEqual(v.w + 1);
-    expect(m.oy).toBeGreaterThanOrEqual(v.rect.t - 1); expect(m.oy + m.H * v.scs / 2).toBeLessThanOrEqual(deckTop + 1);
+    expect(v.tank.x).toBeGreaterThan(0); expect(v.tank.x).toBeLessThan(v.w);
+    expect(await page.evaluate(() => [window.__nt.game.mapW, window.__nt.game.mapH])).toEqual([26, 26]); // solo plays the small square field
+    expect(v.scs).toBeGreaterThan(v.fit * 1.4); // zoomed in: about 16 cells across the width
+    expect(v.scs / 2).toBeGreaterThanOrEqual(22);
+    // tap the map button: the whole map, then back to the tank by itself
+    await expect(page.locator('#btnMap')).toBeVisible();
+    const box = await page.locator('#btnMap').boundingBox();
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForFunction(() => window.__r.peek, null, { timeout: 2000 });
+    await expect(page.locator('#btnMap')).toHaveClass(/on/);
+    await page.waitForFunction(() => window.__r.scs < (window.__r.zoomScs + window.__r.fitScs) / 2, null, { timeout: 4000 }); // gliding out
+    await page.waitForFunction(() => !window.__r.peek && Math.abs(window.__r.scs - window.__r.zoomScs) < 0.5, null, { timeout: 8000 });
+    // hold it: the whole map until you let go
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForFunction(() => window.__r.peek && Math.abs(window.__r.scs - window.__r.fitScs) < 0.5, null, { timeout: 8000 });
+    await page.waitForTimeout(3000);
+    expect(await page.evaluate(() => window.__r.peek)).toBe(true);
+    await page.mouse.up();
+    await page.waitForFunction(() => !window.__r.peek, null, { timeout: 2000 });
+    // the zoom button's whole-map setting hides the map button
+    await page.click('#btnZoom'); await page.click('#btnZoom');
+    await expect(page.locator('#btnMap')).toBeHidden();
   });
 });
 
@@ -223,6 +240,35 @@ test.describe('maps', () => {
       return out;
     });
     expect(bad).toEqual([]);
+  });
+
+  test('no clear shots at spawn: co-op cores are shielded from the top, rival spawn points are covered', async ({ page }) => {
+    await open(page, {});
+    const bad = await page.evaluate(async () => {
+      const { builtinMaps } = await import('./maps.js');
+      const L = await import('./levels.js');
+      const C = await import('./const.js');
+      const out = [];
+      const check = (label, grid, lay) => {
+        if (!L.coreShielded(grid, lay)) out.push(label + ': core in the open');
+        const open = L.openSpawnLines(grid, lay);
+        if (open.length) out.push(label + ': ' + open.map(([a, b]) => `(${a.x},${a.y})-(${b.x},${b.y})`).join(' '));
+      };
+      for (const m of builtinMaps()) { const d = L.decodeMap(m.data); C.setMapSize(d.w, d.h); check(m.name, d.grid, L.getLayout(d.layout)); }
+      for (const size of ['S', 'M', 'L']) for (const lay of ['C', 'A', 'D', 'U']) for (let seed = 1; seed <= 6; seed++) {
+        C.setMapSize(...C.SIZES[size]);
+        const g = L.generateMap(lay, seed, 2), layout = L.getLayout(lay);
+        if (!L.checkConnectivity(g.grid, layout)) out.push(`random ${lay}${size}#${seed}: not connected`);
+        check(`random ${lay}${size}#${seed}`, g.grid, layout);
+      }
+      // the check itself: an empty co-op field and an empty arena are flagged
+      C.setMapSize(26, 26);
+      const empty = new Uint8Array(26 * 26);
+      out.push(L.coreShielded(empty, L.getLayout('C')) ? 'check missed an open core' : 'ok');
+      out.push(L.openSpawnLines(empty, L.getLayout('D')).length ? 'ok' : 'check missed open spawns');
+      return out;
+    });
+    expect(bad).toEqual(['ok', 'ok']);
   });
 
   test('cornering: pushing into a wall one cell beside a gap slides the tank through', async ({ page }) => {

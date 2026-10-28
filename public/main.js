@@ -76,6 +76,8 @@ if (matchMedia('(hover: none) and (pointer: coarse)').matches) {
 function layoutGame() {
   const { compact, portrait } = applyDeviceClasses();
   $('#btnZoom').classList.toggle('hidden', !compact);
+  $('#btnMap').classList.toggle('hidden', !compact || zoom === 'fit');
+  if (!compact) endPeek();
   if (!compact) { renderer.setFrame(null); return; }
   const sa = safeArea(), top = Math.max(sa.t, $('#hudTop').getBoundingClientRect().bottom);
   let bottom = sa.b;
@@ -87,9 +89,30 @@ function layoutGame() {
 function setZoom(z, announce) {
   zoom = z; store.set('nt_zoom', z); renderer.setZoom(z);
   $('#btnZoom').classList.toggle('zout', ZOOM_ORDER[(ZOOM_ORDER.indexOf(z) + 1) % ZOOM_ORDER.length] === 'fit');
+  $('#btnMap').classList.toggle('hidden', !isCompact() || z === 'fit');
+  endPeek();
   if (announce) toast(ZOOM_NAMES[z], 1200);
 }
 $('#btnZoom').onclick = () => setZoom(ZOOM_ORDER[(ZOOM_ORDER.indexOf(zoom) + 1) % ZOOM_ORDER.length], true);
+// Map button: a quick look at the whole map. Tap: the whole map for a moment, then back to your tank
+// (tap again to go back sooner). Hold: the whole map until you let go.
+let peekTimer = 0, peekDown = 0;
+function setPeek(on) { renderer.peek = on; $('#btnMap').classList.toggle('on', on); }
+function endPeek() { clearTimeout(peekTimer); peekTimer = 0; peekDown = 0; setPeek(false); }
+$('#btnMap').addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if (renderer.peek && peekTimer) { endPeek(); return; }
+  clearTimeout(peekTimer); peekTimer = 0;
+  peekDown = performance.now(); setPeek(true);
+});
+const peekUp = () => {
+  if (!peekDown) return;
+  const held = performance.now() - peekDown; peekDown = 0;
+  if (held > 400) endPeek(); else peekTimer = setTimeout(endPeek, 2500);
+};
+$('#btnMap').addEventListener('pointerup', peekUp);
+$('#btnMap').addEventListener('pointercancel', peekUp);
+$('#btnMap').addEventListener('contextmenu', e => e.preventDefault());
 setZoom(zoom);
 // Phone browsers (not the app): go full screen on the first touch in a game so the address and navigation
 // bars don't take space. Works in Chrome on Android; Safari on iPhone has no full screen for web pages.
@@ -132,7 +155,7 @@ function show(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === name));
   input.enabled = name === 'game';
   $('#bg').style.display = name === 'game' || name === 'editor' ? 'none' : 'block';
-  if (name === 'game') { S.chipKey = ''; fsAsked = false; renderer.resetCamera(); layoutGame(); renderer.resize(); } else if (input.releaseTouch) input.releaseTouch();
+  if (name === 'game') { S.chipKey = ''; fsAsked = false; endPeek(); renderer.resetCamera(); layoutGame(); renderer.resize(); } else { if (input.releaseTouch) input.releaseTouch(); endPeek(); }
   if (name === 'editor') editor.show();
 }
 
