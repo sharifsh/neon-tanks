@@ -32,7 +32,16 @@ const S = {
   pendingMap: null, fromEditor: false, endShown: false, checkpoint: null, migrating: false,
 };
 const LAYOUT_MODE = { C: 'classic', A: 'battle', D: 'deathmatch', U: 'duel' };
-function newLobby() { return { theme: curTheme(), mode: 'classic', map: null, size: 'auto', atmo: 'default', zone: false, bots: true, difficulty: store.get('nt_diff', 'easy'), started: false, players: [], spectators: [], order: [] }; }
+// a new game starts from the player's last choices (mode, map size, conditions, bots, difficulty)
+function pick(v, ok, d) { return ok.includes(v) ? v : d; }
+function newLobby() {
+  return {
+    theme: curTheme(), mode: pick(store.get('nt_mode', 'classic'), Object.keys(MODES), 'classic'), map: null,
+    size: pick(store.get('nt_size', 'auto'), ['auto', 'S', 'M', 'L'], 'auto'), atmo: pick(store.get('nt_atmo', 'default'), ['default', 'clear', 'night', 'fog'], 'default'),
+    zone: store.get('nt_zone', '0') === '1', bots: store.get('nt_bots', '1') === '1', difficulty: pick(store.get('nt_diff', 'easy'), Object.keys(DIFFICULTIES), 'easy'),
+    started: false, players: [], spectators: [], order: [],
+  };
+}
 if (!CLASSES[S.me.cls]) S.me.cls = 'striker';
 if (!CLASSES[S.p2.cls]) S.p2.cls = 'scout';
 const localIds = () => new Set([S.me.id, P2(S.me.id)]);
@@ -168,7 +177,8 @@ function renderClassPicker(el, compact, who = 'me') {
     const ok = canClass(k);
     const d = document.createElement('div'); d.className = 'cls' + (cur === k ? ' sel' : '') + (ok ? '' : ' locked-full');
     d.appendChild(tankIcon('p' + k, PLAYER_COLORS[[0, 1, 2, 4][i]], 108));
-    d.insertAdjacentHTML('beforeend', `<div class="n">${ok ? '' : lock}${c.name}</div>${compact ? '' : `<div class="d">${c.desc}</div>`}`);
+    const bar = (label, v) => `<span class="st"><span>${label}</span><i><b style="width:${Math.round(v * 100)}%"></b></i></span>`;
+    d.insertAdjacentHTML('beforeend', `<div class="n">${ok ? '' : lock}${c.name}</div>${compact ? '' : `<div class="stats">${bar('Speed', c.speed / 6.6)}${bar('Armor', c.hp / 3)}</div><div class="d">${c.desc}</div>`}`);
     d.dataset.cls = k;
     d.onclick = () => {
       sfx('click');
@@ -184,6 +194,7 @@ function refreshPickers() {
   renderClassPicker($('#classPicker'), false); renderClassPicker($('#classPicker2'), true); renderClassPicker($('#classPickerP2'), true, 'p2');
 }
 function onClassChange() {
+  if (S.screen === 'setup') renderSetup();
   if (S.isHost) {
     if (S.game) { S.game.setClass(S.me.id, S.me.cls); S.game.setClass(P2(S.me.id), S.p2.cls); }
     renderLobby(); broadcastLobby();
@@ -198,8 +209,10 @@ function requireName() {
   if (!S.me.name) { S.me.name = 'Tanker' + Math.floor(100 + Math.random() * 900); $('#nameInput').value = S.me.name; store.set('nt_name', S.me.name); }
   initAudio(); startMusic();
 }
-$('#btnSolo').onclick = () => { requireName(); S.isHost = true; S.online = false; S.code = ''; S.role = 'player'; enterLobby(); };
-$('#btnCreate').onclick = createRoom;
+$('#btnSolo').onclick = () => openSetup('solo');
+$('#btnCreate').onclick = () => openSetup('room');
+$('#btnSettings').onclick = () => { renderStick(); $('#settingsModal').classList.remove('hidden'); };
+$('#btnHelp').onclick = () => { renderStick(); $('#helpModal').classList.remove('hidden'); };
 $('#btnJoin').onclick = () => joinRoom($('#joinCode').value.trim().toUpperCase());
 $('#joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btnJoin').click(); });
 $('#btnEditor').onclick = () => { initAudio(); show('editor'); };
@@ -208,6 +221,21 @@ $('#volMusic').value = store.get('nt_music', '0.22'); $('#volSfx').value = store
 setVolume('music', +$('#volMusic').value); setVolume('sfx', +$('#volSfx').value);
 $('#volMusic').oninput = e => { setVolume('music', +e.target.value); store.set('nt_music', e.target.value); };
 $('#volSfx').oninput = e => { setVolume('sfx', +e.target.value); store.set('nt_sfx', e.target.value); };
+
+// ---------- joystick: fixed at the bottom left (default) or following the thumb ----------
+const STICK_NOTE = { fixed: 'The joystick stays at the bottom left. Put your thumb on it to steer.', float: 'The joystick appears wherever your thumb touches the left side, and follows it.' };
+const STICK_HELP = { fixed: 'slide your thumb on the joystick at the bottom left', float: 'put your left thumb down anywhere on the left side and slide it' };
+input.stickMode = store.get('nt_stick', 'fixed') === 'float' ? 'float' : 'fixed';
+function renderStick() {
+  document.querySelectorAll('.stick-seg button').forEach(b => { const on = b.dataset.stick === input.stickMode; b.classList.toggle('sel', on); b.setAttribute('aria-checked', String(on)); });
+  document.querySelectorAll('.stick-note').forEach(n => { n.textContent = STICK_NOTE[input.stickMode]; });
+  document.querySelectorAll('.help-stick').forEach(n => { n.textContent = STICK_HELP[input.stickMode]; });
+  document.body.classList.toggle('stick-fixed', input.stickMode === 'fixed');
+}
+document.querySelectorAll('.stick-seg button').forEach(b => {
+  b.onclick = () => { sfx('click'); input.stickMode = b.dataset.stick === 'float' ? 'float' : 'fixed'; store.set('nt_stick', input.stickMode); if (input.releaseTouch) input.releaseTouch(); renderStick(); };
+});
+renderStick();
 
 function setPendingMap(m) {
   S.pendingMap = m;
@@ -220,8 +248,10 @@ function setPendingMap(m) {
 
 async function createRoom() {
   requireName();
+  const why = lobbyBlocker();
+  if (why) { openFull(why); return; }
   const code = makeRoomCode();
-  const btn = $('#btnCreate'); btn.disabled = true; btn.textContent = 'Opening room…';
+  const btn = $('#setupNext'); btn.disabled = true; btn.textContent = 'Opening room…';
   try {
     S.isHost = true; S.online = true; S.code = code; S.role = 'player';
     S.net = new Net({ code, me: S.me, isHost: true, on: hostHandlers });
@@ -229,7 +259,7 @@ async function createRoom() {
     history.replaceState(null, '', '?room=' + code);
     enterLobby();
   } catch (e) { toast(e.message || 'Could not create room'); S.net = null; S.online = false; }
-  btn.disabled = false; btn.textContent = 'Create Online Room';
+  btn.disabled = false; renderSetup();
 }
 
 async function joinRoom(code) {
@@ -271,7 +301,7 @@ function setP2(on) {
     if (S.game) { if (on) S.game.addPlayer({ id: P2(S.me.id), name: p2Name(), cls: S.p2.cls }); else S.game.removePlayer(P2(S.me.id)); }
     broadcastLobby();
   } else if (S.net) S.net.sendToHost({ y: 'p2', on, name: p2Name(), cls: S.p2.cls }, true);
-  renderLobby();
+  renderLobby(); if (S.screen === 'setup') renderSetup();
 }
 $('#btnAddP2').onclick = () => setP2(true);
 $('#btnRemoveP2').onclick = () => setP2(false);
@@ -315,13 +345,10 @@ function renderLobbyKeys() { $('#p2Keys').textContent = `P1: ${keysSummary(0)}  
 
 // ---------- lobby ----------
 function enterLobby() {
-  if (S.isHost) {
-    S.lobby = { ...newLobby(), map: S.pendingMap };
-    enforceLobby();
-    if (S.pendingMap) { const L = mapLayout(S.pendingMap.data); if (MODES[S.lobby.mode].layout !== L) S.lobby.mode = LAYOUT_MODE[L]; S.lobby.zone = !!S.pendingMap.zone; }
-  }
+  if (S.isHost) { S.lobby.theme = curTheme(); enforceLobby(); }
+  wiz.edit = false;
   $('#p2Name').value = S.p2.name;
-  refreshPickers(); renderLobby(); show('lobby');
+  placeP2('room'); refreshPickers(); renderLobby(); show('lobby');
 }
 
 function playerCount() { return lobbyPlayers().length; }
@@ -373,7 +400,7 @@ function renderLobby() {
     const p = players[i];
     const d = document.createElement('div');
     if (!p && i >= cap) { d.className = 'slot empty locked-slot' + (lockShown ? ' extra' : ''); lockShown = true; d.innerHTML = '<span class="lock">🔒</span>Full version'; d.title = capMsg(); d.onclick = () => openFull(capMsg()); slots.appendChild(d); continue; }
-    if (!p) { d.className = 'slot empty' + (openShown || !S.online ? ' extra' : ''); openShown = true; d.textContent = S.online ? 'open slot' : (i === 1 && !S.p2.on ? 'add Player 2 below' : '—'); slots.appendChild(d); continue; }
+    if (!p) { d.className = 'slot empty' + (openShown || !S.online ? ' extra' : ''); openShown = true; d.textContent = S.online ? 'open slot' : '—'; slots.appendChild(d); continue; }
     d.className = 'slot';
     const color = pvp ? TEAM_MAIN[i % 2] : PLAYER_COLORS[i % 8];
     const tag = { host: '<span class="net">HOST</span>', rtc: '<span class="net">P2P</span>', relay: '<span class="net relay">RELAY</span>', local: '<span class="net local">SAME PC</span>' }[p.net] || (p.net ? '<span class="net pending">…</span>' : '');
@@ -389,56 +416,32 @@ function renderLobby() {
   $('#btnTakeSlot').textContent = players.length >= cap ? 'No free slot yet' : 'Join as player';
   $('#specNote span').innerHTML = !roomFull() && players.length >= cap ? `This free room holds ${FREE.players} players — you're <b>spectating</b>.` : `Room is full — you're <b>spectating</b>.`;
   $('#myClassBlock').classList.toggle('hidden', spectating);
-  $('#btnAddP2').classList.toggle('hidden', S.p2.on);
-  $('#p2Panel').classList.toggle('hidden', !S.p2.on);
-  renderLobbyKeys();
+  renderP2();
   updateStyleLock();
-  // modes
-  const modes = $('#modePicker'); modes.innerHTML = '';
-  for (const [k, m] of Object.entries(MODES)) {
-    const ok = modeFree(k) || roomFull();
-    const d = document.createElement('div'); d.className = 'mode' + (L.mode === k ? ' sel' : '') + (S.isHost ? '' : ' locked') + (ok ? '' : ' locked-full');
-    d.dataset.mode = k;
-    d.innerHTML = `<div class="n">${ok ? '' : lock}${m.name}</div><div class="d">${m.desc}</div>`;
-    if (S.isHost) d.onclick = () => { sfx('click'); if (!ok) { openFull(`${m.name} is part of the full version.`); return; } S.lobby.mode = k; renderLobby(); broadcastLobby(); };
-    modes.appendChild(d);
-  }
-  $('#modeDesc').textContent = MODES[L.mode] ? MODES[L.mode].desc : '';
-  // difficulty
-  const dp = $('#diffPicker'); dp.innerHTML = '';
-  for (const [k, df] of Object.entries(DIFFICULTIES)) {
-    const ok = diffFree(k) || roomFull();
-    const d = document.createElement('div'); d.className = `diff ${k}` + (L.difficulty === k ? ' sel' : '') + (S.isHost ? '' : ' locked') + (ok ? '' : ' locked-full');
-    d.innerHTML = `<div class="n">${ok ? '' : lock}${df.name}</div><div class="d">${df.desc}</div>`;
-    if (S.isHost) d.onclick = () => { sfx('click'); if (!ok) { openFull(`${df.name} difficulty is part of the full version.`); return; } S.lobby.difficulty = k; store.set('nt_diff', k); renderLobby(); broadcastLobby(); };
-    dp.appendChild(d);
-  }
-  $('#diffDesc').textContent = DIFFICULTIES[L.difficulty] ? `${DIFFICULTIES[L.difficulty].name}: ${DIFFICULTIES[L.difficulty].desc}` : '';
-  let mapTxt = L.map ? L.map.name : 'Procedural — new map every stage';
-  if (L.map) { const lay = mapLayout(L.map.data); if (lay !== MODES[L.mode].layout) mapTxt += ' (other layout — procedural used)'; }
-  $('#mapName').textContent = mapTxt;
-  const mapSize = L.map ? sizeKey(...mapDims(L.map.data)) : null;
-  $('#sizeSel').value = mapSize || L.size || 'auto'; $('#sizeSel').disabled = !S.isHost || !!mapSize;
-  $('#atmoSel').value = L.atmo || 'default'; $('#atmoSel').disabled = !S.isHost;
-  $('#zoneRow').classList.toggle('hidden', L.mode !== 'deathmatch');
-  $('#zoneToggle').checked = !!L.zone; $('#zoneToggle').disabled = !S.isHost;
-  $('#btnPickMap').classList.toggle('hidden', !S.isHost);
-  $('#btnClearMap').classList.toggle('hidden', !(S.isHost && S.lobby.map));
-  $('#botsRow').classList.toggle('hidden', !MODES[L.mode].pvp || L.mode === 'duel');
-  $('#botsLabel').textContent = MODES[L.mode].ffa ? 'Add AI bots (up to 4 tanks total)' : 'Fill teams with AI bots';
-  $('#botsToggle').checked = !!L.bots; $('#botsToggle').disabled = !S.isHost;
+  renderGameSummary(L);
   $('#btnStart').classList.toggle('hidden', !S.isHost);
   $('#waitHost').classList.toggle('hidden', S.isHost);
   $('#waitHost').textContent = !S.isHost && L.started ? 'Game in progress — joining…' : 'Waiting for the host to start…';
 }
+// The room's game settings at a glance; the host taps Change to re-open that step of the setup.
+function mapLabel(L) {
+  if (!L.map) return `Random map${L.size && L.size !== 'auto' ? ' · ' + SIZE_NAMES[L.size] : ''}`;
+  return L.map.name + (mapLayout(L.map.data) !== MODES[L.mode].layout ? ' (other layout — random used)' : '');
+}
+function renderGameSummary(L = S.lobby) {
+  const m = MODES[L.mode] || MODES.classic, df = DIFFICULTIES[L.difficulty] || DIFFICULTIES.easy, th = THEMES[L.theme] || THEMES[curTheme()];
+  const extras = [m.pvp && L.mode !== 'duel' && L.bots ? 'AI bots on' : '', L.mode === 'deathmatch' && L.zone ? 'shrinking zone' : '', L.atmo && L.atmo !== 'default' ? { clear: 'clear day', night: 'night', fog: 'fog' }[L.atmo] : ''].filter(Boolean);
+  const rows = [['mode', 'Mode', m.name, m.desc], ['battle', 'Map', mapLabel(L), extras.join(' · ')], ['battle', 'Difficulty', df.name, df.desc], ['style', 'Style', th.name, S.isHost ? 'applies to everyone' : 'set by the host']];
+  const box = $('#gameSummary');
+  box.innerHTML = rows.map(([step, k, v, sub]) => `<div class="gs-row"><span class="k">${k}</span><span class="v">${esc(v)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>${S.isHost ? `<button class="btn small ghost" data-step="${step}">Change</button>` : ''}</div>`).join('');
+  box.querySelectorAll('button').forEach(b => b.onclick = () => { sfx('click'); editSetup(b.dataset.step); });
+}
 $('#btnLeaveLobby').onclick = () => leaveAll();
 $('#btnCopyLink').onclick = () => copy(`${shareBase()}?room=${S.code}`, 'Invite link copied — send it to your friends!');
-$('#btnPickMap').onclick = () => openMaps();
-$('#btnClearMap').onclick = () => { S.lobby.map = null; renderLobby(); broadcastLobby(); };
-$('#sizeSel').onchange = e => { S.lobby.size = e.target.value; broadcastLobby(); };
-$('#atmoSel').onchange = e => { S.lobby.atmo = e.target.value; broadcastLobby(); };
-$('#zoneToggle').onchange = e => { S.lobby.zone = e.target.checked; broadcastLobby(); };
-$('#botsToggle').onchange = e => { S.lobby.bots = e.target.checked; broadcastLobby(); };
+$('#sizeSel').onchange = e => { S.lobby.size = e.target.value; store.set('nt_size', e.target.value); renderSetup(); broadcastLobby(); };
+$('#atmoSel').onchange = e => { S.lobby.atmo = e.target.value; store.set('nt_atmo', e.target.value); renderSetup(); broadcastLobby(); };
+$('#zoneToggle').onchange = e => { S.lobby.zone = e.target.checked; store.set('nt_zone', e.target.checked ? '1' : '0'); renderSetup(); broadcastLobby(); };
+$('#botsToggle').onchange = e => { S.lobby.bots = e.target.checked; store.set('nt_bots', e.target.checked ? '1' : '0'); renderSetup(); broadcastLobby(); };
 $('#btnStart').onclick = () => startGame();
 $('#btnTakeSlot').onclick = requestPlay;
 $('#btnJoinPlay').onclick = requestPlay;
@@ -453,6 +456,185 @@ function requestPlay() {
 function copy(text, msg) {
   (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast(msg), () => { prompt('Copy this link:', text); });
 }
+
+// ---------- new game, step by step ----------
+// Play Solo and Create Online Room walk through four short steps: mode → style → tank → map & difficulty.
+// Every step starts on the player's last choice, so a returning player can just tap Next. In a room,
+// the host re-opens one step from the room's summary to change it (Done goes back to the room).
+const STEPS = ['mode', 'style', 'tank', 'battle'];
+const STEP_TITLE = { mode: 'Choose a mode', style: 'Pick a visual style', tank: 'Choose your tank', battle: 'Map & difficulty' };
+const STEP_NEXT = { style: 'Next: style', tank: 'Next: tank', battle: 'Next: map' };
+const wiz = { purpose: 'solo', step: 0, edit: false };
+function openSetup(purpose) {
+  if (S.net) return;
+  requireName();
+  wiz.purpose = purpose; wiz.step = 0; wiz.edit = false;
+  S.isHost = true; S.online = false; S.code = ''; S.role = 'player'; S.game = null;
+  S.lobby = newLobby();
+  if (S.pendingMap) applyMapChoice(S.pendingMap);
+  enforceLobby();
+  $('#p2Name').value = S.p2.name;
+  placeP2('setup'); renderSetup(); show('setup');
+}
+function editSetup(step) { wiz.edit = true; wiz.step = Math.max(0, STEPS.indexOf(step)); placeP2('setup'); renderSetup(); show('setup'); }
+function leaveSetupEdit() { wiz.edit = false; placeP2('room'); renderLobby(); show('lobby'); broadcastLobby(); }
+function goStep(i) {
+  wiz.step = Math.max(0, Math.min(STEPS.length - 1, i));
+  renderSetup();
+  const body = $('#setup .setup-body'); if (body) body.scrollTop = 0;
+  window.scrollTo(0, 0); $('#setup').scrollTop = 0;
+}
+function setupNext() {
+  if ($('#setupNext').disabled) return;
+  sfx('click');
+  if (wiz.edit) { leaveSetupEdit(); return; }
+  if (wiz.step < STEPS.length - 1) { goStep(wiz.step + 1); return; }
+  if (wiz.purpose === 'solo') startGame(); else createRoom();
+}
+function setupBack() {
+  sfx('click');
+  if (wiz.edit) leaveSetupEdit();
+  else if (wiz.step > 0) goStep(wiz.step - 1);
+  else show('menu');
+}
+$('#setupNext').onclick = setupNext;
+$('#setupBack').onclick = setupBack;
+document.querySelectorAll('#setupSteps li').forEach((li, i) => { li.onclick = () => { sfx('click'); goStep(i); }; });
+// While more choices are below (a phone on its side cuts the modes list), the bottom edge fades out,
+// so it's clear the list scrolls even when the cut falls exactly between two rows.
+const setupBody = $('#setup .setup-body');
+function setupFade() { setupBody.classList.toggle('more-below', setupBody.scrollTop + setupBody.clientHeight < setupBody.scrollHeight - 4); }
+setupBody.addEventListener('scroll', setupFade, { passive: true });
+addEventListener('resize', () => requestAnimationFrame(setupFade));
+addEventListener('keydown', e => {
+  if (S.screen !== 'setup' || input.capture || document.querySelector('.overlay:not(.hidden)')) return;
+  const card = e.target.closest && e.target.closest('.mode, .sty, .cls, .mcard, .diff');
+  if ((e.key === 'Enter' || e.key === ' ') && card) { e.preventDefault(); card.click(); }
+  else if (e.key === 'Enter' && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(e.target.tagName)) { e.preventDefault(); setupNext(); }
+  else if (e.key === 'Escape') setupBack();
+});
+function renderSetup() {
+  if (!S.lobby) return;
+  const step = STEPS[wiz.step], last = wiz.step === STEPS.length - 1;
+  document.querySelectorAll('#setup .setup-step').forEach(el => el.classList.toggle('active', el.dataset.step === step));
+  document.querySelectorAll('#setupSteps li').forEach((li, i) => { li.classList.toggle('cur', i === wiz.step); li.classList.toggle('done', i < wiz.step); });
+  $('#setup').classList.toggle('editing', wiz.edit);
+  $('#setupTitle').textContent = STEP_TITLE[step];
+  $('#setupKicker').textContent = wiz.edit ? 'Room settings' : `${wiz.purpose === 'solo' ? 'Solo game' : 'Online room'} · step ${wiz.step + 1} of ${STEPS.length}`;
+  $('#setupBack').textContent = wiz.edit ? '← Room' : wiz.step ? '← Back' : '← Menu';
+  const next = $('#setupNext');
+  if (!next.disabled) next.textContent = wiz.edit ? 'Done' : !last ? STEP_NEXT[STEPS[wiz.step + 1]] : wiz.purpose === 'solo' ? 'Start mission' : 'Open room';
+  next.classList.toggle('go', last && !wiz.edit);
+  if (step === 'mode') renderModes();
+  else if (step === 'style') renderStyles();
+  else if (step === 'tank') { refreshPickers(); renderP2(); }
+  else renderBattle();
+  const L = S.lobby, df = DIFFICULTIES[L.difficulty];
+  $('#setupSummary').innerHTML = [MODES[L.mode].name, THEMES[curTheme()].name, CLASSES[S.me.cls].name, mapLabel(L), df ? df.name : ''].map((t, i) => `<span class="${i === wiz.step || (wiz.step === 3 && i === 4) ? 'cur' : ''}">${esc(t)}</span>`).join('');
+  requestAnimationFrame(setupFade); // after the screen is shown and laid out
+}
+
+// step 1: mode
+const ICON = (d, extra = '') => `<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}${extra}</svg>`;
+const MODE_ICON = {
+  classic: ICON('<path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.2 7.5 9.5 4.4-1.3 7.5-4.9 7.5-9.5V6z"/><path d="m9 12 2 2 4-4"/>'),
+  survival: ICON('<path d="M3 8c2.2-2 4.3-2 6.5 0s4.3 2 6.5 0 3.6-1.6 5 0"/><path d="M3 13c2.2-2 4.3-2 6.5 0s4.3 2 6.5 0 3.6-1.6 5 0"/><path d="M3 18c2.2-2 4.3-2 6.5 0s4.3 2 6.5 0 3.6-1.6 5 0"/>'),
+  battle: ICON('<path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="m13 19 6-6M16 16l4 4M19 21l2-2"/><path d="M9.5 6.5 13 3h3v3l-3.5 3.5"/><path d="m5 14 4 4M7 17l-3 3M3 19l2 2"/>'),
+  ctf: ICON('<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>'),
+  deathmatch: ICON('<path d="m12 2 2.2 5.6L20 6l-3.4 5L22 13l-5.6 1.4L18 20l-5-3.2L8 21l.6-5.8L3 13l5.2-2.2L5 5.5l5.6 2.2z"/>'),
+  duel: ICON('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>'),
+};
+const MODE_WHO = { classic: 'Co-op · 1–8 players', survival: 'Co-op · 1–8 players', battle: 'Two teams · bots fill in', ctf: 'Two teams · bots fill in', deathmatch: 'Free for all · bots join in', duel: '1 vs 1 · best of 5 rounds' };
+function renderModes() {
+  const box = $('#modePicker'); box.innerHTML = '';
+  for (const [label, keys] of [['Co-op — defend the core together', ['classic', 'survival']], ['Versus — tank against tank', ['battle', 'ctf', 'deathmatch', 'duel']]]) {
+    box.insertAdjacentHTML('beforeend', `<div class="mode-group">${label}</div>`);
+    for (const k of keys) {
+      const m = MODES[k], ok = modeFree(k) || roomFull();
+      const d = document.createElement('div');
+      d.className = 'mode' + (S.lobby.mode === k ? ' sel' : '') + (ok ? '' : ' locked-full'); d.dataset.mode = k; d.tabIndex = 0;
+      d.innerHTML = `<span class="mi">${MODE_ICON[k]}</span><span class="mt"><span class="n">${ok ? '' : lock}${m.name}</span><span class="w">${MODE_WHO[k]}</span><span class="d">${m.desc}</span></span>`;
+      d.onclick = () => { sfx('click'); if (!ok) { openFull(`${m.name} is part of the full version.`); return; } setMode(k); };
+      d.ondblclick = () => { if (ok && !wiz.edit) setupNext(); };
+      box.appendChild(d);
+    }
+  }
+}
+function setMode(k) {
+  S.lobby.mode = k; store.set('nt_mode', k);
+  if (S.lobby.map && mapLayout(S.lobby.map.data) !== MODES[k].layout) S.lobby.map = null; // that map is for another kind of game
+  if (!MODES[k].pvp) S.lobby.zone = false;
+  renderSetup(); broadcastLobby();
+}
+
+// step 2: visual style (cards built once at start-up, below)
+function renderStyles() {
+  const locked = styleLocked();
+  document.querySelectorAll('#stylePicker .sty').forEach(el => {
+    el.classList.toggle('sel', el.dataset.id === curTheme());
+    el.classList.toggle('locked-full', !canTheme(el.dataset.id));
+    const l = el.querySelector('.sty-lock'); if (l) l.classList.toggle('hidden', canTheme(el.dataset.id) || locked);
+  });
+}
+
+// step 4: map & difficulty
+const SHUFFLE = ICON('<path d="M3 7h3.5c2 0 3 1 4.2 2.7l2.6 4.6C14.5 16 15.5 17 17.5 17H21"/><path d="M3 17h3.5c1.3 0 2.2-.5 3-1.4M14.5 8.4c.8-.9 1.7-1.4 3-1.4H21"/><path d="m18 4 3 3-3 3M18 14l3 3-3 3"/>');
+function applyMapChoice(m) {
+  S.lobby.map = m;
+  const lay = mapLayout(m.data);
+  if (MODES[S.lobby.mode].layout !== lay) S.lobby.mode = LAYOUT_MODE[lay];
+  if (lay === 'D') S.lobby.zone = !!m.zone;
+}
+function renderBattle() {
+  const L = S.lobby, lay = MODES[L.mode].layout;
+  const strip = $('#mapStrip'); strip.innerHTML = '';
+  const cards = [{ random: true }, ...(L.map && !String(L.map.id || '').startsWith('b:') ? [L.map] : []), ...builtinMaps().filter(m => m.layout === lay)];
+  for (const r of cards) {
+    const ok = r.random || !r.builtin || mapFree(r) || Full.owned;
+    const sel = r.random ? !L.map : !!(L.map && (L.map.id ? L.map.id === r.id : L.map.data === r.data));
+    const d = document.createElement('div'); d.className = 'mcard' + (sel ? ' sel' : '') + (ok ? '' : ' locked-full') + (r.random ? ' random' : ''); d.tabIndex = 0;
+    if (r.random) d.innerHTML = `<div class="mthumb">${SHUFFLE}</div><div class="n">Random</div><div class="d">New map every ${L.mode === 'classic' ? 'stage' : 'game'}</div>`;
+    else {
+      const th = document.createElement('div'); th.className = 'mthumb'; th.appendChild(mapPreview(r.data, 3)); d.appendChild(th);
+      d.insertAdjacentHTML('beforeend', `<div class="n">${ok ? '' : lock}${esc(r.name)}</div><div class="d">${r.builtin ? SIZE_NAMES[sizeKey(...mapDims(r.data))] : 'by ' + esc(r.author || 'you')}</div>`);
+      d.dataset.map = r.id || '';
+    }
+    d.onclick = () => {
+      sfx('click');
+      if (!ok) { openFull(`The map “${r.name}” is part of the full version.`); return; }
+      if (r.random) S.lobby.map = null; else applyMapChoice({ id: r.id, name: r.name, data: r.data, atmo: r.atmo || 'clear', zone: !!r.zone, builtin: !!r.builtin });
+      renderSetup(); broadcastLobby();
+    };
+    strip.appendChild(d);
+  }
+  const more = document.createElement('div'); more.className = 'mcard more'; more.tabIndex = 0;
+  more.innerHTML = `<div class="mthumb">${ICON('<circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/>')}</div><div class="n">More maps</div><div class="d">Community & all</div>`;
+  more.onclick = () => { sfx('click'); openMaps(); };
+  strip.appendChild(more);
+  const sel = strip.querySelector('.mcard.sel'); if (sel && sel.scrollIntoView && strip.scrollWidth > strip.clientWidth) strip.scrollLeft = Math.max(0, sel.offsetLeft - strip.offsetLeft - 12);
+  const mapSize = L.map ? sizeKey(...mapDims(L.map.data)) : null;
+  $('#sizeSel').value = mapSize || L.size || 'auto'; $('#sizeSel').disabled = !!mapSize;
+  $('#sizeRow').classList.toggle('dim', !!mapSize);
+  $('#atmoSel').value = L.atmo || 'default';
+  $('#zoneRow').classList.toggle('hidden', L.mode !== 'deathmatch');
+  $('#zoneToggle').checked = !!L.zone;
+  const dp = $('#diffPicker'); dp.innerHTML = '';
+  for (const [k, df] of Object.entries(DIFFICULTIES)) {
+    const ok = diffFree(k) || roomFull();
+    const d = document.createElement('div'); d.className = `diff ${k}` + (L.difficulty === k ? ' sel' : '') + (ok ? '' : ' locked-full'); d.tabIndex = 0;
+    d.innerHTML = `<div class="n">${ok ? '' : lock}${df.name}</div><div class="d">${df.desc}</div>`;
+    d.onclick = () => { sfx('click'); if (!ok) { openFull(`${df.name} difficulty is part of the full version.`); return; } S.lobby.difficulty = k; store.set('nt_diff', k); renderSetup(); broadcastLobby(); };
+    dp.appendChild(d);
+  }
+  $('#diffDesc').textContent = DIFFICULTIES[L.difficulty] ? `${DIFFICULTIES[L.difficulty].name}: ${DIFFICULTIES[L.difficulty].desc}` : '';
+  $('#botsRow').classList.toggle('hidden', !MODES[L.mode].pvp || L.mode === 'duel');
+  $('#botsLabel').textContent = MODES[L.mode].ffa ? 'Add AI bots (up to 4 tanks total)' : 'Fill teams with AI bots';
+  $('#botsToggle').checked = !!L.bots;
+}
+
+// Player 2 on the same keyboard sits in the Tank step during setup, and under "Your tank" in a room
+function placeP2(where) { const b = $('#p2Block'), home = where === 'setup' ? $('#p2Home') : $('#p2Room'); if (b && home && b.parentElement !== home) home.appendChild(b); }
+function renderP2() { $('#btnAddP2').classList.toggle('hidden', S.p2.on); $('#p2Panel').classList.toggle('hidden', !S.p2.on); renderLobbyKeys(); }
 
 // ---------- host ----------
 function addPeerPlayers(id) {
@@ -772,13 +954,16 @@ function showEnd(h) {
   $('#endTable').innerHTML = `<tr><th>#</th><th>Player</th><th>Class</th><th class="num">Kills</th><th class="num">Score</th></tr>` +
     rows.map((p, i) => `<tr><td>${i + 1}</td><td><span class="dot" style="color:${p[2]}"></span>${esc(p[1])}</td><td>${CLASSES[p[7]].name}</td><td class="num">${p[9]}</td><td class="num">${p[4]}</td></tr>`).join('');
   $('#endHost').classList.toggle('hidden', !S.isHost);
+  $('#btnToLobby').textContent = S.fromEditor ? 'Back to editor' : S.online ? 'Back to room' : 'Change game';
   $('#endWait').classList.toggle('hidden', S.isHost);
   setTimeout(() => { if (S.endShown) $('#endMenu').classList.remove('hidden'); }, 1800);
 }
 $('#btnAgain').onclick = () => startGame();
 $('#btnToLobby').onclick = () => {
   if (S.fromEditor) { leaveAll(); return; }
-  S.game = null; S.lobby.started = false; S.endShown = false; $('#endMenu').classList.add('hidden'); broadcastLobby(); renderLobby(); show('lobby');
+  S.game = null; S.lobby.started = false; S.endShown = false; $('#endMenu').classList.add('hidden');
+  if (!S.online) { wiz.purpose = 'solo'; wiz.edit = false; wiz.step = 0; placeP2('setup'); renderSetup(); show('setup'); return; }
+  broadcastLobby(); renderLobby(); show('lobby');
 };
 
 // ---------- pause ----------
@@ -925,10 +1110,11 @@ async function openMaps(tab = mapsTab) {
   const list = $('#mapsList'); list.innerHTML = '<div class="muted">Loading…</div>';
   if (tab === 'builtin') {
     list.innerHTML = '';
-    const cur = MODES[(S.screen === 'lobby' ? S.lobby.mode : 'classic')].layout;
+    const here = S.screen === 'lobby' || S.screen === 'setup';
+    const cur = MODES[(here ? S.lobby.mode : 'classic')].layout;
     const all = builtinMaps();
     for (const fam of [cur, ...'CADU'.split('').filter(f => f !== cur)]) {
-      list.insertAdjacentHTML('beforeend', `<div class="maps-group">${FAMILY[fam]}${fam === cur && S.screen === 'lobby' ? ' — current mode' : ''}</div>`);
+      list.insertAdjacentHTML('beforeend', `<div class="maps-group">${FAMILY[fam]}${fam === cur && here ? ' — current mode' : ''}</div>`);
       for (const r of all.filter(m => m.layout === fam)) list.appendChild(mapCard(r, true));
     }
     return;
@@ -942,12 +1128,11 @@ async function openMaps(tab = mapsTab) {
 }
 document.querySelectorAll('#mapsModal .tab').forEach(b => b.onclick = () => openMaps(b.dataset.tab));
 function useMap(r) {
-  const m = { id: r.id, name: r.name, data: r.data, atmo: r.atmo || 'clear', zone: !!r.zone };
-  if (S.screen === 'lobby' && S.isHost) {
-    S.lobby.map = m;
-    const L = mapLayout(r.data); if (MODES[S.lobby.mode].layout !== L) S.lobby.mode = LAYOUT_MODE[L];
-    if (L === 'D') S.lobby.zone = m.zone;
-    renderLobby(); broadcastLobby();
+  const m = { id: r.id, name: r.name, data: r.data, atmo: r.atmo || 'clear', zone: !!r.zone, builtin: !!r.builtin, author: r.author };
+  if ((S.screen === 'lobby' || S.screen === 'setup') && S.isHost) {
+    applyMapChoice(m);
+    if (S.screen === 'setup') renderSetup(); else renderLobby();
+    broadcastLobby();
   } else setPendingMap(m);
   toast(`Map selected: ${r.name}`);
 }
@@ -1004,30 +1189,36 @@ function applyTheme(id, persist = true) {
   document.querySelectorAll('.sty').forEach(el => el.classList.toggle('sel', el.dataset.id === id));
   refreshPickers();
   editor.buildTools(); if (S.screen === 'editor') editor.resize(); else editor.layer = null;
+  if (S.screen === 'setup') renderSetup();
 }
 // style picker cards on the main page (live previews painted by each style)
+// A 12×6-cell scene. The cards crop it to fit (object-fit: cover): tablets and computers show the middle
+// 10 columns, a phone on its side shows nearly all of it in a wider, shorter card.
 function stylePreview(th) {
-  const c = document.createElement('canvas'), cs = th.pixel ? 16 : 24; c.width = 10 * cs; c.height = 6 * cs;
+  const PW = 12, PH = 6;
+  const c = document.createElement('canvas'), cs = th.pixel ? 16 : 24; c.width = PW * cs; c.height = PH * cs;
   const g = c.getContext('2d');
   const f = document.createElement('canvas'); f.width = MAP_W * cs; f.height = MAP_H * cs; th.floor(f.getContext('2d'), cs);
   g.drawImage(f, 0, 0);
-  const grid = new Uint8Array(MAP_W * MAP_H); const T_ = { b: 1, s: 2, w: 3, t: 4 };
+  const grid = new Uint8Array(MAP_W * MAP_H);
   const put = (x, y, v) => { grid[y * MAP_W + x] = v; };
-  for (let y = 0; y < 6; y++) { put(0, y, 1); put(1, y, 1); }
-  put(8, 0, 4); put(9, 0, 4); put(8, 1, 4); put(9, 1, 4); put(8, 4, 3); put(9, 4, 3); put(8, 5, 3); put(9, 5, 3); put(2, 0, 2); put(3, 0, 2);
-  for (const layer of ['shadow', 'tiles', 'trees']) for (let y = 0; y < 6; y++) for (let x = 0; x < 10; x++) th.cell(g, grid, x, y, cs, layer);
+  for (let y = 0; y < PH; y++) { put(0, y, 1); put(1, y, 1); put(2, y, 1); }      // brick wall on the left
+  put(3, 0, 2); put(4, 0, 2);                                                     // steel
+  for (const x of [9, 10, 11]) { put(x, 0, 4); put(x, 1, 4); put(x, 4, 3); put(x, 5, 3); } // trees and water on the right
+  for (const layer of ['shadow', 'tiles', 'trees']) for (let y = 0; y < PH; y++) for (let x = 0; x < PW; x++) th.cell(g, grid, x, y, cs, layer);
   const tk = document.createElement('canvas'); tk.width = tk.height = 3 * cs; const tg = tk.getContext('2d'); tg.translate(cs * 0.5, cs * 0.5); th.tank(tg, 'pstriker', '#ffd23f', cs * 2, 0);
-  g.save(); g.translate(5 * cs, 3.2 * cs); g.rotate(Math.PI / 2); g.drawImage(tk, -1.5 * cs, -1.5 * cs); g.restore();
+  g.save(); g.translate(PW / 2 * cs, 3.2 * cs); g.rotate(Math.PI / 2); g.drawImage(tk, -1.5 * cs, -1.5 * cs); g.restore();
   return c;
 }
 {
   const box = $('#stylePicker');
   for (const id of THEME_ORDER) {
     const th = THEMES[id], d = document.createElement('div');
-    d.className = 'sty' + (id === savedTheme ? ' sel' : ''); d.dataset.id = id; d.title = th.desc;
-    d.appendChild(stylePreview(th)); d.insertAdjacentHTML("beforeend", `<div class="n">${th.word[0] + th.word.slice(1).toLowerCase()}</div>`);
+    d.className = 'sty' + (id === savedTheme ? ' sel' : ''); d.dataset.id = id; d.title = th.desc; d.tabIndex = 0;
+    d.appendChild(stylePreview(th)); d.insertAdjacentHTML('beforeend', `<div class="n">${th.name}</div><div class="d">${th.desc}</div>`);
     if (!themeFree(id)) d.insertAdjacentHTML('beforeend', '<span class="sty-lock">🔒</span>');
     d.onclick = () => { if (styleLocked()) { toast('The host picks the style in this room'); return; } if (!canTheme(id)) { openFull(`The ${th.name} style is part of the full version.`); return; } applyTheme(id); sfx('click'); };
+    d.ondblclick = () => { if (canTheme(id) && S.screen === 'setup' && !wiz.edit) setupNext(); };
     box.appendChild(d);
   }
 }
@@ -1109,7 +1300,7 @@ function enforceOwnership() {
   }
   if (!canTheme(myTheme())) store.set('nt_theme', 'neon');
   if (!styleLocked() && !canTheme(curTheme())) applyTheme('neon');
-  if (S.isHost && S.screen === 'lobby') { enforceLobby(); renderLobby(); broadcastLobby(); }
+  if (S.isHost && (S.screen === 'lobby' || S.screen === 'setup')) { enforceLobby(); renderLobby(); broadcastLobby(); if (S.screen === 'setup') renderSetup(); }
 }
 function enforceLobby() {
   if (!S.isHost || Full.owned) return;
@@ -1124,6 +1315,7 @@ Full.onChange(why => {
     document.querySelectorAll('.sty').forEach(el => { const l = el.querySelector('.sty-lock'); if (l) l.classList.toggle('hidden', Full.owned); });
     if (S.screen === 'lobby') { if (why === 'locked') enforceOwnership(); renderLobby(); if (S.isHost) broadcastLobby(); }
     else if (why === 'locked') enforceOwnership();
+    if (S.screen === 'setup') renderSetup();
   }
 });
 
@@ -1143,7 +1335,7 @@ if (params.get('room')) {
   const code = params.get('room').toUpperCase();
   $('#joinCode').value = code;
   if (S.me.name) toast(`Invite for room ${code} — press Join to enter`, 4000);
-  else { toast('Enter your callsign, pick a class and press Join', 4000); $('#nameInput').focus(); }
+  else { toast('Enter your callsign and press Join', 4000); $('#nameInput').focus(); }
 }
 addEventListener('pointerdown', () => initAudio(), { once: true });
 window.__nt = S; window.__input = input; window.__applyTheme = applyTheme; window.__full = Full; window.__r = renderer; // debug handles

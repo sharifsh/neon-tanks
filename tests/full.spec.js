@@ -1,7 +1,18 @@
 import { test, expect } from '@playwright/test';
 import { open, PRODUCT_ID } from './fake-store.js';
 
-const solo = async page => { await page.fill('#nameInput', 'Tester'); await page.click('#btnSolo'); await expect(page.locator('#lobby')).toHaveClass(/active/); };
+// Play Solo opens the step-by-step setup: mode → style → tank → map & difficulty
+const solo = async page => { await page.fill('#nameInput', 'Tester'); await page.click('#btnSolo'); await expect(page.locator('#setup')).toHaveClass(/active/); };
+const step = (page, name) => page.click(`#setupSteps li[data-step="${name}"]`);
+// Create Online Room: the same steps, then Open room
+const openRoom = async (page, name) => {
+  await page.fill('#nameInput', name); await page.click('#btnCreate');
+  await expect(page.locator('#setup')).toHaveClass(/active/);
+  for (let i = 0; i < 3; i++) await page.click('#setupNext');
+  await expect(page.locator('#setupNext')).toHaveText(/Open room/i);
+  await page.click('#setupNext');
+  await expect(page.locator('#lobby')).toHaveClass(/active/);
+};
 const mode = (page, k) => page.locator(`#modePicker .mode[data-mode="${k}"]`);
 const card = page => page.locator('#fullModal');
 const fs = (page, f) => page.evaluate(f);
@@ -11,6 +22,7 @@ test.describe('website = free version', () => {
     const hits = await open(page, { native: false });
     expect(await page.evaluate(() => window.__full.native)).toBe(false);
     await expect(page.locator('#btnRestore')).toBeHidden();
+    await solo(page); await step(page, 'style');
     await expect(page.locator('#stylePicker .sty[data-id="desert"] .sty-lock')).toBeVisible();
     await expect(page.locator('#stylePicker .sty[data-id="pixel"] .sty-lock')).toHaveCount(0);
     await page.click('#stylePicker .sty[data-id="desert"]');
@@ -19,8 +31,8 @@ test.describe('website = free version', () => {
     await expect(page.locator('#fullBuy')).toBeHidden();
     await expect(page.locator('#fullWeb')).toContainText('free version');
     await page.click('#fullModal [data-close]');
-    expect(await page.evaluate(() => document.body.className)).toBe('theme-neon');
-    await solo(page);
+    expect(await page.evaluate(() => document.body.className.split(' ').filter(c => c.startsWith('theme-')))).toEqual(['theme-neon']);
+    await step(page, 'mode');
     await expect(mode(page, 'classic')).not.toHaveClass(/locked-full/);
     await expect(mode(page, 'battle')).not.toHaveClass(/locked-full/);
     for (const k of ['survival', 'ctf', 'deathmatch', 'duel']) await expect(mode(page, k)).toHaveClass(/locked-full/);
@@ -34,12 +46,15 @@ test.describe('website = free version', () => {
 test.describe('app with stand-in store', () => {
   test('free copy: locks, and asks the store for the product each time the card opens', async ({ page }) => {
     await open(page, {});
+    await page.click('#btnSettings');
     await expect(page.locator('#btnRestore')).toBeVisible();
+    await page.click('#settingsModal [data-close]');
     await expect(page.locator('#classPicker .cls[data-cls="heavy"]')).toHaveClass(/locked-full/);
     await page.click('#btnFull');
     await expect(page.locator('#fullBuy')).toHaveText('Unlock everything — $3.99');
     const n1 = await fs(page, () => window.__fs.calls.filter(c => c === 'getProducts').length);
     await page.click('#fullModal [data-close]');
+    await solo(page); await step(page, 'tank');
     await page.click('#classPicker .cls[data-cls="heavy"]');
     await expect(card(page)).toBeVisible();
     await expect(page.locator('#fullWhy')).toContainText('Heavy');
@@ -55,10 +70,11 @@ test.describe('app with stand-in store', () => {
     await expect(page.locator('#toast')).toContainText('unlocked');
     expect(await fs(page, () => window.__fs.calls)).toContain(`purchaseProduct:${PRODUCT_ID}`);
     await expect(mode(page, 'survival')).not.toHaveClass(/locked-full/);
-    await expect(page.locator('.diff.insane')).not.toHaveClass(/locked-full/);
     await mode(page, 'survival').click();
+    await step(page, 'battle');
+    await expect(page.locator('.diff.insane')).not.toHaveClass(/locked-full/);
     await page.locator('.diff.insane').click();
-    await page.click('#btnStart');
+    await page.click('#setupNext');
     await expect(page.locator('#game')).toHaveClass(/active/);
     expect(await fs(page, () => [window.__nt.game.mode, window.__nt.game.difficulty])).toEqual(['survival', 'insane']);
     expect(await fs(page, () => localStorage.getItem('nt_full'))).toBe('1');
@@ -98,9 +114,11 @@ test.describe('app with stand-in store', () => {
     await expect(page.locator('#fullStatus')).toContainText('No previous purchase');
     await page.click('#fullModal [data-close]');
     await fs(page, () => { window.__fs.restoreOwned = true; });
+    await page.click('#btnSettings');
     await page.click('#btnRestore');
     await expect(page.locator('#toast')).toContainText('restored');
     expect(await fs(page, () => window.__full.owned)).toBe(true);
+    await page.click('#settingsModal [data-close]');
     await expect(page.locator('#btnFull')).toHaveText('★ Full version ✓');
   });
 
@@ -113,12 +131,15 @@ test.describe('app with stand-in store', () => {
 
   test('refund: returning to the app re-checks and falls back to free choices', async ({ page }) => {
     await open(page, { owned: true });
+    await solo(page); await step(page, 'style');
     await page.click('#stylePicker .sty[data-id="desert"]');
+    await step(page, 'tank');
     await page.click('#classPicker .cls[data-cls="heavy"]');
-    expect(await fs(page, () => [document.body.className, window.__nt.me.cls])).toEqual(['theme-desert', 'heavy']);
+    expect(await fs(page, () => [document.body.className.includes('theme-desert'), window.__nt.me.cls])).toEqual([true, 'heavy']);
     await fs(page, () => { window.__fs.revoked = true; document.dispatchEvent(new Event('visibilitychange')); });
     await expect.poll(() => fs(page, () => window.__full.owned)).toBe(false);
-    expect(await fs(page, () => [document.body.className, window.__nt.me.cls, localStorage.getItem('nt_full')])).toEqual(['theme-neon', 'striker', null]);
+    expect(await fs(page, () => [document.body.className.includes('theme-neon'), window.__nt.me.cls, localStorage.getItem('nt_full')])).toEqual([true, 'striker', null]);
+    await step(page, 'style');
     await expect(page.locator('#stylePicker .sty[data-id="desert"] .sty-lock')).toBeVisible();
   });
 
@@ -145,8 +166,8 @@ test.describe('app with stand-in store', () => {
 
   test('locked built-in maps open the card; free ones can be used', async ({ page }) => {
     await open(page, {});
-    await solo(page);
-    await page.click('#btnPickMap');
+    await solo(page); await step(page, 'battle');
+    await page.click('#mapStrip .mcard.more');
     const locked = page.locator('.map-card.locked-full');
     await expect(locked).toHaveCount(16);
     await locked.first().locator('[data-a=use]').click();
@@ -163,15 +184,18 @@ test.describe('online rooms follow the host’s copy', () => {
     const host = await ctx.newPage(), guest = await ctx.newPage();
     await open(host, { owned: true }, '/?fakenet=1');
     await open(guest, { owned: false }, '/?fakenet=1');
-    await host.fill('#nameInput', 'Host'); await host.click('#btnCreate');
-    await expect(host.locator('#lobby')).toHaveClass(/active/);
+    await openRoom(host, 'Host');
+    await host.click('#gameSummary button[data-step="mode"]');
     await mode(host, 'survival').click();
+    await host.click('#setupNext'); // Done: back to the room
+    await expect(host.locator('#lobby')).toHaveClass(/active/);
+    await expect(host.locator('#gameSummary')).toContainText('Survival');
     const code = (await host.textContent('#roomCode')).trim();
     await guest.fill('#nameInput', 'Guest'); await guest.fill('#joinCode', code); await guest.click('#btnJoin');
     await expect(guest.locator('#lobby')).toHaveClass(/active/);
     await expect.poll(() => guest.evaluate(() => !!window.__nt.lobby.full)).toBe(true);
-    await expect(mode(guest, 'survival')).toHaveClass(/sel/);
-    await expect(guest.locator('#modePicker .locked-full')).toHaveCount(0);
+    await expect(guest.locator('#gameSummary')).toContainText('Survival');
+    await expect(guest.locator('#gameSummary button')).toHaveCount(0); // only the host changes the game
     await guest.locator('#classPicker2 .cls[data-cls="heavy"]').click();
     await expect(guest.locator('#fullModal')).toBeHidden();
     expect(await guest.evaluate(() => window.__nt.me.cls)).toBe('heavy');
@@ -188,8 +212,7 @@ test.describe('online rooms follow the host’s copy', () => {
       const ctx = await browser.newContext();
       const host = await ctx.newPage();
       await open(host, { owned }, '/?fakenet=1');
-      await host.fill('#nameInput', 'Host'); await host.click('#btnCreate');
-      await expect(host.locator('#lobby')).toHaveClass(/active/);
+      await openRoom(host, 'Host');
       const code = (await host.textContent('#roomCode')).trim();
       const guests = [];
       for (let n = 1; n <= 3; n++) {

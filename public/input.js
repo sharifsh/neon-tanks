@@ -44,6 +44,7 @@ export class Input {
     this.binds = loadBinds(); this.rebuild();
     this.st = [fresh(), fresh()];
     this.touch = { d: -1, f: false, a: false };
+    this.stickMode = 'fixed'; // or 'float': the touch joystick follows the thumb
     addEventListener('keydown', e => {
       if (this.capture) { e.preventDefault(); e.stopPropagation(); this.capture(e.code); return; }
       if (!this.enabled || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
@@ -94,8 +95,9 @@ export class Input {
     return { d, f, a };
   }
 
-  // Touch: put a thumb down anywhere on the left half and the stick appears under it (it follows the
-  // thumb if it slides too far). Anything on the right half fires; ABL is its own button.
+  // Touch, left half: the joystick. Fixed (default): it stays at the bottom left and a thumb on or near it
+  // steers. Follows thumb: it appears under the thumb anywhere on the left half and follows it if the thumb
+  // slides past its edge. Right half: fire. ABL is its own button.
   bindTouch(root) {
     const stick = root.querySelector('.stick'), knob = root.querySelector('.knob');
     const left = root.querySelector('.tzone-l'), right = root.querySelector('.tzone-r');
@@ -103,6 +105,7 @@ export class Input {
     let sid = null, cx = 0, cy = 0;
     const fires = new Set();
     const R = () => stick.offsetWidth / 2 || 60;
+    const floating = () => this.stickMode === 'float';
     const place = (x, y) => {
       const z = left.getBoundingClientRect(), o = root.getBoundingClientRect(), r = R();
       cx = Math.max(z.left + r * 0.7, Math.min(z.right - r * 0.4, x)); cy = Math.max(z.top + r * 0.7, Math.min(z.bottom - r * 0.5, y));
@@ -111,7 +114,7 @@ export class Input {
     const move = t => {
       let dx = t.clientX - cx, dy = t.clientY - cy, dist = Math.hypot(dx, dy);
       const r = R();
-      if (dist > r * 1.15) { const k = (dist - r * 1.15) / dist; place(cx + dx * k, cy + dy * k); dx = t.clientX - cx; dy = t.clientY - cy; dist = Math.hypot(dx, dy); }
+      if (floating() && dist > r * 1.15) { const k = (dist - r * 1.15) / dist; place(cx + dx * k, cy + dy * k); dx = t.clientX - cx; dy = t.clientY - cy; dist = Math.hypot(dx, dy); }
       const k = Math.min(1, dist / r);
       knob.style.transform = `translate(${dx / (dist || 1) * k * r * 0.6}px, ${dy / (dist || 1) * k * r * 0.6}px)`;
       this.touch.d = dist < Math.max(9, r * 0.2) ? -1 : dirOf(dx, dy, this.touch.d);
@@ -119,8 +122,15 @@ export class Input {
     };
     const start = e => {
       if (sid !== null) return;
-      const t = e.changedTouches[0]; sid = t.identifier;
-      place(t.clientX, t.clientY); stick.classList.add('active'); move(t); e.preventDefault();
+      const t = e.changedTouches[0];
+      if (floating()) { place(t.clientX, t.clientY); }
+      else {
+        // fixed: steer from the stick's own centre; a thumb that lands far from the stick does nothing
+        const b = stick.getBoundingClientRect(), r = R();
+        cx = b.left + b.width / 2; cy = b.top + b.height / 2;
+        if (Math.hypot(t.clientX - cx, t.clientY - cy) > r * 2.2) return;
+      }
+      sid = t.identifier; stick.classList.add('active'); move(t); e.preventDefault();
     };
     const drag = e => { for (const t of e.changedTouches) if (t.identifier === sid) move(t); e.preventDefault(); };
     const end = e => {

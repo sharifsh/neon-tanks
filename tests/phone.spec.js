@@ -5,10 +5,13 @@ import { open } from './fake-store.js';
 // Solo games only; open() blocks the real database.
 const PHONE = { viewport: { width: 874, height: 402 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true };
 
+// Play Solo walks through the setup (mode, style, tank, map & difficulty); the defaults are fine here
 async function startSolo(page) {
   await page.fill('#nameInput', 'Tester'); await page.click('#btnSolo');
-  await expect(page.locator('#lobby')).toHaveClass(/active/);
-  await page.click('#btnStart');
+  await expect(page.locator('#setup')).toHaveClass(/active/);
+  for (let i = 0; i < 3; i++) await page.click('#setupNext');
+  await expect(page.locator('#setupNext')).toHaveText(/Start mission/i);
+  await page.click('#setupNext');
   await expect(page.locator('#game')).toHaveClass(/active/);
   await page.waitForFunction(() => window.__nt.game && window.__nt.game.tanks.some(t => t.kind === 'player'));
   // the stage opens on the whole map, then the view zooms in on your tank
@@ -64,9 +67,10 @@ test.describe('phone, landscape', () => {
     expect(hits).toEqual([]);
   });
 
-  test('touch: a thumb on the left half steers (the view follows), the right half fires, ABL is its own button', async ({ page }) => {
+  test('touch, joystick that follows the thumb: a thumb anywhere on the left half steers (the view follows), the right half fires, ABL is its own button', async ({ page }) => {
     await open(page, {});
-    await page.evaluate(() => localStorage.setItem('nt_zoom', 'close'));
+    await page.evaluate(() => { localStorage.setItem('nt_zoom', 'close'); localStorage.setItem('nt_stick', 'float'); });
+    await page.reload(); await page.waitForFunction(() => window.__full);
     await startSolo(page);
     await clearAround(page);
     const t = await touch(page);
@@ -99,6 +103,54 @@ test.describe('phone, landscape', () => {
     await t.start([[3, abl.x + abl.width / 2, abl.y + abl.height / 2]]);
     expect(await page.evaluate(() => window.__input.touch)).toMatchObject({ a: true, f: false });
     await t.end();
+  });
+
+  test('touch, fixed joystick (the default): it stays put; a thumb on it steers, a thumb far from it does nothing', async ({ page }) => {
+    await open(page, {});
+    await page.evaluate(() => localStorage.setItem('nt_zoom', 'close'));
+    await startSolo(page);
+    expect(await page.evaluate(() => window.__input.stickMode)).toBe('fixed');
+    await clearAround(page);
+    const t = await touch(page);
+    const home = await page.locator('#touch .stick').boundingBox();
+    const cx = home.x + home.width / 2, cy = home.y + home.height / 2;
+    // far from the stick (upper left): nothing happens
+    await t.start([[1, 120, 120]]);
+    expect(await page.evaluate(() => window.__input.touch.d)).toBe(-1);
+    await expect(page.locator('#touch .stick')).not.toHaveClass(/active/);
+    await t.end();
+    // on the stick: slide up to drive up, and the stick does not move
+    const y0 = await page.evaluate(() => window.__nt.game.tanks.find(t => t.kind === 'player').y);
+    await t.start([[2, cx + 4, cy + 6]]);
+    await t.move([[2, cx + 6, cy - 50]]);
+    await expect(page.locator('#touch .stick')).toHaveClass(/active/);
+    expect(await page.evaluate(() => window.__input.touch.d)).toBe(0);
+    const moved = await page.locator('#touch .stick').boundingBox();
+    expect(Math.abs(moved.x - home.x) + Math.abs(moved.y - home.y)).toBeLessThan(1);
+    await page.waitForTimeout(1500);
+    expect(await page.evaluate(() => window.__nt.game.tanks.find(t => t.kind === 'player').y)).toBeLessThan(y0 - 4);
+    // sliding well past the edge keeps steering from the same spot
+    await t.move([[2, cx + 160, cy - 10]]);
+    expect(await page.evaluate(() => window.__input.touch.d)).toBe(1);
+    expect(Math.abs((await page.locator('#touch .stick').boundingBox()).x - home.x)).toBeLessThan(1);
+    await t.end();
+    expect(await page.evaluate(() => window.__input.touch.d)).toBe(-1);
+  });
+
+  test('settings: the joystick choice is remembered', async ({ page }) => {
+    await open(page, {});
+    await page.click('#btnSettings');
+    await expect(page.locator('#settingsModal .stick-seg [data-stick="fixed"]')).toHaveClass(/sel/);
+    await page.click('#settingsModal .stick-seg [data-stick="float"]');
+    await expect(page.locator('#settingsModal .stick-note')).toContainText('follows');
+    expect(await page.evaluate(() => [window.__input.stickMode, localStorage.getItem('nt_stick')])).toEqual(['float', 'float']);
+    await page.reload(); await page.waitForFunction(() => window.__full);
+    expect(await page.evaluate(() => window.__input.stickMode)).toBe('float');
+    // the pause menu has the same switch
+    await startSolo(page);
+    await page.click('#btnPause');
+    await page.click('#pauseMenu .stick-seg [data-stick="fixed"]');
+    expect(await page.evaluate(() => window.__input.stickMode)).toBe('fixed');
   });
 
   test('out of lives: the view pulls back to the whole map', async ({ page }) => {
@@ -141,9 +193,10 @@ test.describe('phone, portrait (website)', () => {
     await page.waitForTimeout(3000);
     expect(await page.evaluate(() => window.__r.peek)).toBe(true);
     await page.mouse.up();
-    await page.waitForFunction(() => !window.__r.peek, null, { timeout: 2000 });
+    await page.waitForFunction(() => !window.__r.peek, null, { timeout: 6000 });
     // the zoom button's whole-map setting hides the map button
-    await page.click('#btnZoom'); await page.click('#btnZoom');
+    await page.evaluate(() => { document.querySelector('#btnZoom').click(); document.querySelector('#btnZoom').click(); });
+    expect(await page.evaluate(() => window.__r.zoom)).toBe('fit');
     await expect(page.locator('#btnMap')).toBeHidden();
   });
 });
@@ -158,36 +211,114 @@ test.describe('desktop', () => {
     expect(v.compact).toBe(false);
     expect(v.scs).toBe(v.fit);
   });
+  test('new game setup: a card in the middle, as tall as its tallest step, so Next never moves', async ({ page }) => {
+    const hits = await open(page, {});
+    await page.click('#btnSolo');
+    const vp = page.viewportSize(), seen = [];
+    for (const st of ['mode', 'style', 'tank', 'battle']) {
+      await page.click(`#setupSteps li[data-step="${st}"]`);
+      await expect(page.locator(`#setup .setup-step[data-step="${st}"]`)).toBeVisible();
+      seen.push({
+        card: await page.locator('#setup .setup-wrap').boundingBox(),
+        next: await page.locator('#setupNext').boundingBox(),
+        overflow: await page.evaluate(() => { const b = document.querySelector('.setup-body'); return b.scrollHeight - b.clientHeight; }),
+      });
+    }
+    for (const s of seen) {
+      expect(s.card).toEqual(seen[0].card);
+      expect(s.next.y).toBe(seen[0].next.y); // "Start mission" is wider; its right edge stays put
+      expect(s.next.x + s.next.width).toBe(seen[0].next.x + seen[0].next.width);
+      expect(s.overflow, 'every step fits without scrolling').toBeLessThanOrEqual(1);
+    }
+    const { card } = seen[0];
+    expect(card.height).toBeLessThan(vp.height - 40);
+    expect(Math.abs(card.y - (vp.height - card.y - card.height)), 'centred').toBeLessThanOrEqual(2);
+    await expect(page.locator('#setup .setup-step[data-step="mode"]')).toBeHidden(); // steps not showing can't be clicked
+    expect(hits).toEqual([]);
+  });
 });
 
 test.describe('phone menus (iPhone 13 size)', () => {
   for (const [label, vp] of [['upright', { width: 390, height: 844 }], ['on its side', { width: 844, height: 390 }]]) {
     test.describe(label, () => {
       test.use({ ...PHONE, viewport: vp });
-      test('Play Solo is on the first screen, keyboard-only options are hidden, the lobby starts on Easy', async ({ page }) => {
+      test('a short home screen, then one step at a time; keyboard-only options are hidden; Easy by default', async ({ page }) => {
         const hits = await open(page, {});
         await expect(page.locator('body')).toHaveClass(/compact/);
         await expect(page.locator('body')).toHaveClass(/touch-only/);
-        for (const id of ['#btnSolo', '#btnCreate', '#btnJoin', '#nameInput']) {
+        for (const id of ['#btnSolo', '#btnCreate', '#btnJoin', '#nameInput', '#btnSettings']) {
           const r = await page.locator(id).boundingBox();
           expect(r.y + r.height, id).toBeLessThanOrEqual(vp.height);
         }
+        // the home screen no longer carries the style and tank pickers
+        await expect(page.locator('#stylePicker')).toBeHidden();
+        await expect(page.locator('#classPicker')).toBeHidden();
+        await page.click('#btnSettings');
         await expect(page.locator('#btnControls')).toBeHidden();
+        await expect(page.locator('#settingsModal .stick-row')).toBeVisible();
+        await page.click('#settingsModal [data-close]');
         await page.click('#btnSolo');
-        await expect(page.locator('#lobby')).toHaveClass(/active/);
+        await expect(page.locator('#setup')).toHaveClass(/active/);
+        const steps = ['mode', 'style', 'tank', 'battle'];
+        for (let i = 0; i < 4; i++) {
+          await expect(page.locator(`#setup .setup-step[data-step="${steps[i]}"]`)).toBeVisible();
+          await expect(page.locator(`#setupSteps li[data-step="${steps[i]}"]`)).toHaveClass(/cur/);
+          const next = await page.locator('#setupNext').boundingBox();
+          expect(next.y + next.height, 'Next stays in reach').toBeLessThanOrEqual(vp.height);
+          expect(next.y, 'Next sits at the bottom').toBeGreaterThan(vp.height * 0.6);
+          if (steps[i] === 'style' && label === 'on its side') { // all seven styles on one screen
+            expect(await page.evaluate(() => { const b = document.querySelector('.setup-body'); return b.scrollHeight - b.clientHeight; })).toBeLessThanOrEqual(1);
+            await expect(page.locator('#setup .setup-body')).not.toHaveClass(/more-below/);
+          }
+          if (steps[i] === 'mode' && label === 'on its side') { // the modes list scrolls here: its bottom edge fades until you reach the end
+            const body = page.locator('#setup .setup-body');
+            await expect(body).toHaveClass(/more-below/);
+            await body.evaluate(b => { b.scrollTop = b.scrollHeight; });
+            await expect(body).not.toHaveClass(/more-below/);
+          }
+          if (steps[i] === 'tank') {
+            await expect(page.locator('#btnAddP2')).toBeHidden(); // keyboard two-player
+            await page.keyboard.press('KeyW'); // a keyboard appears: its options come back
+            await expect(page.locator('#btnAddP2')).toBeVisible();
+          }
+          if (i < 3) await page.click('#setupNext');
+        }
         expect(await page.evaluate(() => window.__nt.lobby.difficulty)).toBe('easy');
         await expect(page.locator('#diffDesc')).toContainText('Easy');
-        await expect(page.locator('#btnAddP2')).toBeHidden();
-        await expect(page.locator('#btnControls2')).toBeHidden();
-        const start = await page.locator('#btnStart').boundingBox();
-        expect(start.y + start.height).toBeLessThanOrEqual(vp.height); // Start stays in reach
-        // a keyboard appears: its options come back
-        await page.keyboard.press('KeyW');
-        await expect(page.locator('#btnControls2')).toBeVisible();
+        await expect(page.locator('#setupNext')).toHaveText(/Start mission/i);
+        // back goes one step at a time, then home
+        for (let i = 0; i < 4; i++) await page.click('#setupBack');
+        await expect(page.locator('#menu')).toHaveClass(/active/);
         expect(hits).toEqual([]);
       });
     });
   }
+});
+
+test.describe('new game setup', () => {
+  test('choices are remembered for the next game; the step tabs jump around', async ({ page }) => {
+    const hits = await open(page, { owned: true });
+    await page.fill('#nameInput', 'Tester'); await page.click('#btnSolo');
+    await page.locator('#modePicker .mode[data-mode="battle"]').click();
+    await page.click('#setupSteps li[data-step="tank"]'); // jump ahead
+    await page.locator('#classPicker .cls[data-cls="scout"]').click();
+    await page.click('#setupSteps li[data-step="style"]'); // and back
+    await page.locator('#stylePicker .sty[data-id="pixel"]').click();
+    await page.click('#setupSteps li[data-step="battle"]');
+    await page.locator('#diffPicker .diff.normal').click();
+    await page.locator('#mapStrip .mcard', { hasText: 'Crossfire' }).click();
+    await expect(page.locator('#setupSummary')).toContainText('Team Battle');
+    await page.click('#setupNext');
+    await expect(page.locator('#game')).toHaveClass(/active/);
+    expect(await page.evaluate(() => { const g = window.__nt.game; return [g.mode, g.difficulty, g.cfg.customName, document.body.className.includes('theme-pixel'), [...g.players.values()][0].cls]; }))
+      .toEqual(['battle', 'normal', 'Crossfire', true, 'scout']);
+    await page.click('#btnPause'); await page.click('#btnQuit');
+    await expect(page.locator('#menu')).toHaveClass(/active/);
+    await page.click('#btnSolo');
+    await expect(page.locator('#modePicker .mode[data-mode="battle"]')).toHaveClass(/sel/);
+    expect(await page.evaluate(() => [window.__nt.lobby.mode, window.__nt.lobby.difficulty, window.__nt.me.cls])).toEqual(['battle', 'normal', 'scout']);
+    expect(hits).toEqual([]);
+  });
 });
 
 test.describe('turning the phone', () => {
