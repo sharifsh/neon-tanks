@@ -206,39 +206,66 @@ test.describe('online rooms follow the host’s copy', () => {
     await ctx.close();
   });
 
-  for (const [owned, cap] of [[false, 3], [true, 8]]) {
+  for (const [owned, cap] of [[false, 4], [true, 8]]) {
     test(`room size: ${owned ? 'full' : 'free'} host allows ${cap} players`, async ({ browser }) => {
-      test.setTimeout(90000); // four browser pages talking to each other
+      test.setTimeout(120000); // five browser pages talking to each other
       const ctx = await browser.newContext();
       const host = await ctx.newPage();
       await open(host, { owned }, '/?fakenet=1');
       await openRoom(host, 'Host');
+      // every spot is listed from the start; the empty ones fill in as people join
+      await expect(host.locator('#slots .slot:not(.locked-slot)')).toHaveCount(cap);
+      await expect(host.locator('#slots .slot.open')).toHaveCount(cap - 1);
       const code = (await host.textContent('#roomCode')).trim();
       const guests = [];
-      for (let n = 1; n <= 3; n++) {
+      for (let n = 1; n <= 4; n++) {
         const g = await ctx.newPage();
         await open(g, { owned: false }, '/?fakenet=1');
         await g.fill('#nameInput', 'Guest' + n); await g.fill('#joinCode', code); await g.click('#btnJoin');
         await expect(g.locator('#lobby')).toHaveClass(/active/);
         await expect.poll(() => host.evaluate(() => window.__nt.peers.size), { timeout: 15000 }).toBe(n);
         guests.push(g);
+        if (n === 1) {
+          await expect(host.locator('#slots .slot.open')).toHaveCount(cap - 2);
+          await expect(g.locator('#slots .slot:not(.locked-slot)')).toHaveCount(cap); // the guest sees the same spots
+          await expect(g.locator('#slots .slot.open')).toHaveCount(cap - 2);
+        }
       }
-      await expect.poll(() => guests[2].evaluate(() => window.__nt.role), { timeout: 15000 }).toBe(owned ? 'player' : 'spectator');
-      await expect(host.locator('#playerCount')).toHaveText(owned ? '4/8' : '3/3');
-      await expect(host.locator('#slots .locked-slot')).toHaveCount(owned ? 0 : 5);
+      await expect.poll(() => guests[3].evaluate(() => window.__nt.role), { timeout: 15000 }).toBe(owned ? 'player' : 'spectator');
+      await expect(host.locator('#playerCount')).toHaveText(owned ? '5/8' : '4/4');
+      await expect(host.locator('#slots .slot.open')).toHaveCount(owned ? 3 : 0);
+      await expect(host.locator('#slots .locked-slot')).toHaveCount(owned ? 0 : 1);
       if (!owned) {
-        await expect(guests[2].locator('#specNote')).toBeVisible();
-        await expect(guests[2].locator('#specNote')).toContainText('free room holds 3');
-        // a locked slot explains the limit and offers the unlock
-        await host.locator('#slots .locked-slot').first().click();
-        await expect(host.locator('#fullWhy')).toContainText('Free rooms hold 3 players');
+        await expect(guests[3].locator('#specNote')).toBeVisible();
+        await expect(guests[3].locator('#specNote')).toContainText('free room holds 4');
+        // the locked row explains the limit and offers the unlock
+        await expect(host.locator('#slots .locked-slot')).toContainText('Up to 8 players');
+        await host.locator('#slots .locked-slot').click();
+        await expect(host.locator('#fullWhy')).toContainText('Free rooms hold 4 players');
         // when a player leaves, the spectator can take the free slot
         await guests[0].close({ runBeforeUnload: true }); // lets the page say goodbye instead of waiting for a timeout
-        await expect(guests[2].locator('#btnTakeSlot')).toBeEnabled({ timeout: 30000 });
-        await guests[2].click('#btnTakeSlot');
-        await expect.poll(() => guests[2].evaluate(() => window.__nt.role), { timeout: 15000 }).toBe('player');
+        await expect(guests[3].locator('#btnTakeSlot')).toBeEnabled({ timeout: 30000 });
+        await guests[3].click('#btnTakeSlot');
+        await expect.poll(() => guests[3].evaluate(() => window.__nt.role), { timeout: 15000 }).toBe('player');
       }
       await ctx.close();
     });
   }
+
+  test('phones show every spot of the room too', async ({ browser }) => {
+    for (const [owned, cap, cols] of [[false, 4, 1], [true, 8, 2]]) {
+      const ctx = await browser.newContext({ viewport: { width: 874, height: 402 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+      const host = await ctx.newPage();
+      await open(host, { owned }, '/?fakenet=1');
+      await openRoom(host, 'Host');
+      const spots = host.locator('#slots .slot:not(.locked-slot)');
+      await expect(spots).toHaveCount(cap);
+      for (let i = 0; i < cap; i++) await expect(spots.nth(i)).toBeVisible();
+      await expect(host.locator('#slots .slot.open').first()).toContainText('Open spot');
+      // 8-player rooms use two columns on a phone, so all the spots fit
+      const xs = await spots.evaluateAll(els => [...new Set(els.map(e => Math.round(e.getBoundingClientRect().left)))]);
+      expect(xs.length).toBe(cols);
+      await ctx.close();
+    }
+  });
 });

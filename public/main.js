@@ -406,17 +406,26 @@ function renderLobby() {
   $('#playerCount').textContent = `${players.length}/${cap}`;
   const slots = $('#slots'); slots.innerHTML = '';
   const pvp = MODES[L.mode].pvp && !MODES[L.mode].ffa;
-  let openShown = false, lockShown = false; // phones list the players plus one open (and one locked) slot
-  for (let i = 0; i < MAX_PLAYERS; i++) {
+  // Online rooms list every spot from the start, so the empty ones fill in as people join.
+  // Free rooms add one locked row for the full version's bigger rooms.
+  const spots = S.online ? Math.max(cap, players.length) : players.length;
+  slots.classList.toggle('many', spots > 4); // phones: two columns for 8-player rooms
+  for (let i = 0; i < spots; i++) {
     const p = players[i];
     const d = document.createElement('div');
-    if (!p && i >= cap) { d.className = 'slot empty locked-slot' + (lockShown ? ' extra' : ''); lockShown = true; d.innerHTML = '<span class="lock">🔒</span>Full version'; d.title = capMsg(); d.onclick = () => openFull(capMsg()); slots.appendChild(d); continue; }
-    if (!p) { d.className = 'slot empty' + (openShown || !S.online ? ' extra' : ''); openShown = true; d.textContent = S.online ? 'open slot' : '—'; slots.appendChild(d); continue; }
-    d.className = 'slot';
     const color = pvp ? TEAM_MAIN[i % 2] : PLAYER_COLORS[i % 8];
+    if (!p) { d.className = 'slot empty open'; d.innerHTML = `<span class="dot hollow" style="color:${color}"></span><span class="nm">Open spot</span>`; slots.appendChild(d); continue; }
+    d.className = 'slot';
     const tag = { host: '<span class="net">HOST</span>', rtc: '<span class="net">P2P</span>', relay: '<span class="net relay">RELAY</span>', local: '<span class="net local">SAME PC</span>' }[p.net] || (p.net ? '<span class="net pending">…</span>' : '');
     const mine = localIds().has(p.id);
     d.innerHTML = `<span class="dot" style="color:${color}"></span><span class="nm">${esc(p.name)}${mine ? ' (you)' : ''}</span><span class="tag">${CLASSES[p.cls] ? CLASSES[p.cls].name : ''}</span>${tag}`;
+    slots.appendChild(d);
+  }
+  if (S.online && !roomFull()) {
+    const d = document.createElement('div');
+    d.className = 'slot empty locked-slot';
+    d.innerHTML = `<span class="lock">🔒</span>Up to ${MAX_PLAYERS} players with the full version`;
+    d.title = capMsg(); d.onclick = () => openFull(capMsg());
     slots.appendChild(d);
   }
   $('#specList').classList.toggle('hidden', !specs.length);

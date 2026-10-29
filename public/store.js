@@ -19,7 +19,7 @@ export const FREE = {
   classes: ['striker', 'scout'],
   maps: ['b:fortress-gate', 'b:river-crossing', 'b:minefield', 'b:frozen-lake', 'b:twin-rivers', 'b:crossfire', 'b:mirror-keep', 'b:portal-wars'],
   shareMaps: false, // editing and test play are free; publishing to the community needs Full
-  players: 3, // online rooms hosted with the free version hold 3 players (full version: 8); others can still watch as spectators
+  players: 4, // online rooms hosted with the free version hold 4 players (full version: 8); others can still watch as spectators
 };
 
 const CACHE_KEY = 'nt_full';

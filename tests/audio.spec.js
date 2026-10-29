@@ -118,7 +118,11 @@ test('coming back mid-game: no engine hum until the tank drives again', async ({
   await page.click('#setupNext');
   await expect(page.locator('#game')).toHaveClass(/active/);
   await page.waitForFunction(() => window.__nt.game && window.__nt.game.tanks.some(t => t.kind === 'player'));
-  await page.evaluate(() => { const g = window.__nt.game; g.freezeUntil = g.time + 600; });
+  await page.evaluate(() => { // freeze the enemies and open a corridor, so nothing stops the tank
+    const g = window.__nt.game, me = g.tanks.find(t => t.kind === 'player');
+    for (let y = 0; y < g.mapH; y++) for (let x = Math.floor(me.x) - 1; x <= Math.floor(me.x) + 3; x++) if (x >= 0 && x < g.mapW) g.grid[y * g.mapW + x] = 0;
+    g.gridRev = (g.gridRev || 0) + 1; g.freezeUntil = g.time + 600;
+  });
   await page.keyboard.down('KeyW'); // drive
   await expect.poll(() => page.evaluate(() => window.__audio.engineOn)).toBe(true);
   await setHidden(page, true); // minimized with the key still held

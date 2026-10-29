@@ -18,7 +18,7 @@ Pixel Remaster, Winter Front, Desert Storm, Blueprint. Styles are purely visual 
 ## App Store / Google Play (Capacitor 8)
 Store name **Neon Tanks: Arena Battle** · bundle/app ID `com.sharifsh.neontanks` · SKU `neontanks001`.
 - Web files live in `public/` (Netlify publishes `public/`). The website is the free version.
-- `public/store.js`: `FREE` (what's free; online rooms hosted with the free version hold `FREE.players` = 3 players, full version 8), `Full` (store checks at launch and on return, product re-query when the unlock card opens, buy, restore). Product ID `com.sharifsh.neontanks.full` (non-consumable, @capgo/native-purchases). Online rooms follow the host's copy.
+- `public/store.js`: `FREE` (what's free; online rooms hosted with the free version hold `FREE.players` = 4 players, full version 8), `Full` (store checks at launch and on return, product re-query when the unlock card opens, buy, restore). Product ID `com.sharifsh.neontanks.full` (non-consumable, @capgo/native-purchases). Online rooms follow the host's copy.
 - `npm test`: Playwright tests with a stand-in store (fake `window.Capacitor`); the real database is blocked in tests.
 - `npm run assets`: regenerate icons/splash from `assets/`. `npm run vendor`: rebuild the bundled supabase-js.
 - CI: `testflight.yml` (secret check → unsigned archive on macOS/Xcode 26 → cloud-signed export with the ASC API key → TestFlight; build number = run number), `ios.yml` (simulator compile), `android.yml`, `deploy.yml` (tests → Netlify build hook).
