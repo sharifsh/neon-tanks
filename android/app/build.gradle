@@ -7,7 +7,8 @@ android {
         applicationId "com.sharifsh.neontanks"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode Integer.parseInt(System.getenv("BUILD_NUMBER") ?: "1")
+        // Google Play bundles pass their own (always increasing) versionCode; the CI test builds use their run number.
+        versionCode((System.getenv("PLAY_VERSION_CODE") ?: System.getenv("BUILD_NUMBER") ?: "1").toInteger())
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -16,8 +17,22 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release builds for Google Play are signed with the upload key, which only the Google Play workflow has (from
+    // GitHub secrets). Without it, release builds stay unsigned and the test builds are unaffected.
+    signingConfigs {
+        release {
+            def ks = System.getenv("ANDROID_KEYSTORE_FILE")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "upload"
+                keyPassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
+            if (System.getenv("ANDROID_KEYSTORE_FILE")) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
