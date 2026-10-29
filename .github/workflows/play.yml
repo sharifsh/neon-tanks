@@ -1,0 +1,57 @@
+# Google Play: the app bundle (.aab) signed with the upload key from the repository secrets ANDROID_KEYSTORE_B64 and
+# ANDROID_KEYSTORE_PASSWORD (the same upload key as Octo Blast). Run by hand. The versionCode is 100 + the run number,
+# so every bundle is newer than the last. With the secret PLAY_SERVICE_ACCOUNT_JSON set, the bundle goes straight to
+# internal testing (tools/play-upload.mjs); without it, download the bundle from the run and upload it in Play Console.
+# Google needs the very first bundle of a new app uploaded by hand in Play Console.
+name: Google Play
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SEND_TO_PLAY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: 21, cache: gradle }
+      - name: Check the upload key is set up
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KS" ] || [ -z "$PW" ]; then
+            echo "::error title=No upload key::Add ANDROID_KEYSTORE_B64 and ANDROID_KEYSTORE_PASSWORD as repository secrets (the same values as Octo Blast)."
+            exit 1
+          fi
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/upload.jks"
+      - name: Build the signed bundle
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/upload.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          export PLAY_VERSION_CODE=$((100 + ${{ github.run_number }}))
+          npm ci && npx cap sync android
+          # files uploaded through the GitHub website lose the executable bit
+          (cd android && chmod +x gradlew && ./gradlew bundleRelease --no-daemon --stacktrace)
+          rm -f "$RUNNER_TEMP/upload.jks"
+          mkdir -p dist && cp android/app/build/outputs/bundle/release/app-release.aab "dist/neon-tanks-1.0-$PLAY_VERSION_CODE.aab"
+          jarsigner -verify dist/*.aab | grep -q "jar verified" || { echo "::error title=Unsigned bundle::The bundle is not signed with the upload key"; exit 1; }
+          echo "VERSION_CODE=$PLAY_VERSION_CODE" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: neon-tanks-play-${{ env.VERSION_CODE }}
+          path: dist/*.aab
+          retention-days: 30
+      - name: Send to Google Play internal testing
+        if: env.SEND_TO_PLAY == 'true'
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: node tools/play-upload.mjs dist/*.aab --track internal --name "1.0 ($VERSION_CODE)"
+      - name: How to send it by hand
+        if: env.SEND_TO_PLAY != 'true'
+        run: echo "::notice title=Upload by hand::Download neon-tanks-play-$VERSION_CODE from this run and upload the .aab in Play Console → Testing → Internal testing → Create new release."
