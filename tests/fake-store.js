@@ -3,22 +3,32 @@
 // database / CDN so tests can never write to it.
 export const PRODUCT_ID = 'com.sharifsh.neontanks.full';
 
+// android: true makes it Google Play: purchases carry a purchaseToken, isAcknowledged (acked) and
+// purchaseState (state: '1' purchased, '2' pending), and acknowledgePurchase is recorded in calls
+// (ackFails: true makes it throw).
 export function installFakeStore(page, init = {}) {
   return page.addInitScript(({ init, ID }) => {
     const fs = window.__fs = Object.assign({
       native: true, owned: false, revoked: false, next: 'ok', restoreOwned: false, offered: true, calls: [], listeners: {},
+      android: false, acked: true, state: '1', ackFails: false,
     }, init);
     if (!fs.native) return;
     const product = { identifier: ID, title: 'Neon Tanks Full', description: 'Unlock all modes, maps and styles', priceString: '$3.99', price: 3.99, currencyCode: 'USD' };
-    const purchase = () => ({ productIdentifier: ID, transactionId: '2000000001', purchaseDate: '2026-10-25T10:00:00Z', ...(fs.revoked ? { revocationDate: '2026-10-26T10:00:00Z', revocationReason: 'other' } : {}) });
+    const purchase = () => ({ productIdentifier: ID, transactionId: '2000000001', purchaseDate: '2026-10-25T10:00:00Z', ...(fs.revoked ? { revocationDate: '2026-10-26T10:00:00Z', revocationReason: 'other' } : {}),
+      ...(fs.android ? { purchaseToken: 'tok-1', isAcknowledged: fs.acked, purchaseState: fs.state } : {}) });
     const NativePurchases = {
       async getPurchases(o) { fs.calls.push('getPurchases'); return { purchases: fs.owned ? [purchase()] : [] }; },
       async getProducts(o) { fs.calls.push('getProducts'); return { products: fs.offered ? [product].filter(p => o.productIdentifiers.includes(p.identifier)) : [] }; },
+      async acknowledgePurchase(o) {
+        fs.calls.push('acknowledgePurchase:' + o.purchaseToken);
+        if (fs.ackFails) throw new Error('Service unavailable');
+        fs.acked = true;
+      },
       async purchaseProduct(o) {
         fs.calls.push('purchaseProduct:' + o.productIdentifier);
         await new Promise(r => setTimeout(r, 50));
         switch (fs.next) {
-          case 'ok': fs.owned = true; return purchase();
+          case 'ok': fs.owned = true; fs.acked = true; return purchase(); // the plugin acknowledges purchases it makes
           case 'cancel': throw Object.assign(new Error('User cancelled'), { code: 'USER_CANCELED' });
           case 'pending': throw new Error('Transaction pending');
           case 'fail': throw new Error('Payment declined');
@@ -27,7 +37,7 @@ export function installFakeStore(page, init = {}) {
       async restorePurchases() { fs.calls.push('restorePurchases'); if (fs.restoreOwned) fs.owned = true; },
       async addListener(ev, fn) { fs.listeners[ev] = fn; return { remove() {} }; },
     };
-    window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'ios', Plugins: { NativePurchases } };
+    window.Capacitor = { isNativePlatform: () => true, getPlatform: () => (fs.android ? 'android' : 'ios'), Plugins: { NativePurchases } };
   }, { init, ID: PRODUCT_ID });
 }
 

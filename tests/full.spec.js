@@ -178,6 +178,61 @@ test.describe('app with stand-in store', () => {
   });
 });
 
+test.describe('Google Play: purchases get acknowledged, so they aren’t refunded', () => {
+  const acks = page => page.evaluate(() => window.__fs.calls.filter(c => c.startsWith('acknowledgePurchase')));
+  // launch checks the account (and acknowledges) before it asks the store for the product
+  const launched = page => expect.poll(() => page.evaluate(() => window.__fs.calls.includes('getProducts'))).toBe(true);
+  const check = page => page.evaluate(() => window.__full.refresh());
+
+  test('a purchase that arrives outside the game (promo code, slow payment) is acknowledged at launch, once', async ({ page }) => {
+    await open(page, { android: true, owned: true, acked: false });
+    await launched(page);
+    expect(await acks(page)).toEqual(['acknowledgePurchase:tok-1']);
+    expect(await page.evaluate(() => window.__full.owned)).toBe(true);
+    await check(page); // the next check sees it acknowledged
+    expect(await acks(page)).toEqual(['acknowledgePurchase:tok-1']);
+  });
+
+  test('if acknowledging fails, the game stays unlocked and tries again at the next check', async ({ page }) => {
+    await open(page, { android: true, owned: true, acked: false, ackFails: true });
+    await launched(page);
+    expect(await acks(page)).toHaveLength(1);
+    expect(await page.evaluate(() => window.__full.owned)).toBe(true);
+    await page.evaluate(() => { window.__fs.ackFails = false; });
+    await check(page);
+    expect(await acks(page)).toHaveLength(2);
+    expect(await page.evaluate(() => window.__fs.acked)).toBe(true);
+    await check(page);
+    expect(await acks(page)).toHaveLength(2);
+  });
+
+  test('a purchase made in the game is left to the plugin', async ({ page }) => {
+    await open(page, { android: true });
+    await page.click('#btnFull');
+    await page.click('#fullBuy');
+    await expect(page.locator('#toast')).toContainText('unlocked');
+    await check(page);
+    expect(await acks(page)).toEqual([]);
+  });
+
+  test('nothing to acknowledge: App Store purchases, already acknowledged, payment still pending', async ({ browser }) => {
+    for (const [init, owned] of [
+      [{ owned: true }, true],
+      [{ android: true, owned: true, acked: true }, true],
+      [{ android: true, owned: true, acked: false, state: '2' }, false],
+    ]) {
+      const ctx = await browser.newContext();
+      const page = await ctx.newPage();
+      await open(page, init);
+      await launched(page);
+      await check(page);
+      expect(await page.evaluate(() => window.__full.owned)).toBe(owned);
+      expect(await acks(page)).toEqual([]);
+      await ctx.close();
+    }
+  });
+});
+
 test.describe('online rooms follow the host’s copy', () => {
   test('full host unlocks the room for a free guest; leaving drops it', async ({ browser }) => {
     const ctx = await browser.newContext();

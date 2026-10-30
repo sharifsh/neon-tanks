@@ -47,6 +47,20 @@ export function grants(t) {
   return true;
 }
 
+// Google Play refunds a purchase that isn't acknowledged within three days (a few minutes for
+// license testers). The plugin acknowledges a purchase made with purchaseProduct, but one that
+// completes any other way (a redeemed promo code, a slow payment that goes through after the
+// purchase screen closed, the app closing mid-purchase) only shows up when the game checks the
+// account, so acknowledge it then. App Store transactions have no isAcknowledged field.
+async function acknowledge(P, purchases) {
+  if (!P.acknowledgePurchase) return;
+  for (const t of purchases) {
+    if (!grants(t) || t.isAcknowledged !== false || !t.purchaseToken) continue;
+    try { await P.acknowledgePurchase({ purchaseToken: t.purchaseToken }); }
+    catch (e) { console.warn('acknowledge purchase failed', errText(e)); } // tried again at the next check
+  }
+}
+
 export const Full = {
   native: false,
   owned: false,
@@ -77,12 +91,15 @@ export const Full = {
     this.loadProduct();
   },
 
-  // Ask the store what this account owns. Keeps the cached answer if the store can't be reached.
+  // Ask the store what this account owns (and acknowledge anything Google Play is still waiting on).
+  // Keeps the cached answer if the store can't be reached.
   async refresh() {
     const P = plugin(); if (!P) return this.owned;
     try {
       const r = await P.getPurchases({ productType: 'inapp', onlyCurrentEntitlements: true });
-      this.set((r && r.purchases || []).some(grants));
+      const list = (r && r.purchases) || [];
+      this.set(list.some(grants));
+      await acknowledge(P, list);
     } catch (e) { console.warn('purchases check failed', errText(e)); }
     return this.owned;
   },
