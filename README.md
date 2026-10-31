@@ -10,6 +10,7 @@ Modern web remake of the 1990 tank classic. Static site — no build step.
 - Difficulty: Easy / Normal / Hard / Insane.
 - Spectators: rooms hold 8 players + 7 spectators; spectators can take a slot when one frees up.
 - Host migration: the host streams a full game checkpoint every 2s; if the host leaves, the earliest-joined peer takes over and everyone reconnects automatically.
+- Online pause: a pause stops the game for everyone and says who paused; the pauser or the host resumes. The host's room option Pause: Anyone (default) or Host only, remembered on that device; a game paused when the host leaves stays paused for the new host.
 
 ## Round 3 — visual styles
 Per-player style picker (menu, lobby, pause): Neon, Modern Warfare (realistic MBTs), Miniature (tilt-shift diorama),

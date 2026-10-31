@@ -89,6 +89,7 @@
         <div class="map-opts">
           <label id="sizeRow">Size <select id="sizeSel"><option value="auto">Auto</option><option value="S">Small 26×26</option><option value="M">Medium 30×30</option><option value="L">Large 38×38</option></select></label>
           <label>Conditions <select id="atmoSel"><option value="default">Map default</option><option value="clear">Clear day</option><option value="night">Night</option><option value="fog">Fog</option></select></label>
+          <label id="pauseRow" class="hidden">Pause <select id="pauseSel"><option value="any">Anyone</option><option value="host">Host only</option></select></label>
         </div>
         <label id="zoneRow" class="toggle hidden"><input type="checkbox" id="zoneToggle"> Shrinking zone (forces everyone to the centre)</label>
         <label class="lbl">Difficulty</label>
@@ -173,7 +174,7 @@
   </div>
   <div id="pauseMenu" class="overlay hidden">
     <div class="panel center">
-      <h2>Paused</h2>
+      <h2 id="pauseTitle">Paused</h2>
       <p id="pauseNote" class="muted"></p>
       <button id="btnResume" class="btn primary">Resume</button>
       <button id="btnControls3" class="btn ghost kbd-only">Controls</button>

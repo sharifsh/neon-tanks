@@ -27,7 +27,7 @@ const S = {
   role: 'player',
   screen: 'menu', net: null, isHost: false, online: false, code: '',
   lobby: newLobby(),
-  game: null, paused: false, peers: new Map(),
+  game: null, paused: false, pz: null, pzAsk: null, peers: new Map(), // pz: who paused the online game { by, name }
   snaps: [], mapStr: '', clientEv: [], localEv: [], clockOff: null, rtt: 0,
   pendingMap: null, fromEditor: false, endShown: false, checkpoint: null, migrating: false,
 };
@@ -39,6 +39,7 @@ function newLobby() {
     theme: curTheme(), mode: pick(store.get('nt_mode', 'classic'), Object.keys(MODES), 'classic'), map: null,
     size: pick(store.get('nt_size', 'auto'), ['auto', 'S', 'M', 'L'], 'auto'), atmo: pick(store.get('nt_atmo', 'default'), ['default', 'clear', 'night', 'fog'], 'default'),
     zone: store.get('nt_zone', '0') === '1', bots: store.get('nt_bots', '1') === '1', difficulty: pick(store.get('nt_diff', 'easy'), Object.keys(DIFFICULTIES), 'easy'),
+    pause: pick(store.get('nt_pause', 'any'), ['any', 'host'], 'any'), // online rooms: who can pause, 'any' player or the 'host' only
     started: false, players: [], spectators: [], order: [],
   };
 }
@@ -290,7 +291,7 @@ async function joinRoom(code) {
 
 function leaveAll(msg) {
   if (S.net) S.net.close();
-  S.net = null; S.game = null; S.online = false; S.isHost = false; S.paused = false; S.endShown = false; S.role = 'player';
+  S.net = null; S.game = null; S.online = false; S.isHost = false; S.paused = false; S.pz = S.pzAsk = null; menuOpen = false; S.endShown = false; S.role = 'player';
   S.peers.clear(); S.snaps = []; S.mapStr = ''; S.clockOff = null; S.checkpoint = null; S.migrating = false;
   if (curTheme() !== myTheme()) applyTheme(myTheme(), false);
   S.lobby = newLobby();
@@ -386,6 +387,7 @@ function lobbySpectators() {
 function lobbyState() {
   return {
     full: Full.owned, theme: curTheme(), mode: S.lobby.mode, map: S.lobby.map, size: S.lobby.size, atmo: S.lobby.atmo, zone: S.lobby.zone, bots: S.lobby.bots, difficulty: S.lobby.difficulty, started: S.lobby.started,
+    pause: S.lobby.pause, paused: S.pz,
     players: lobbyPlayers(), spectators: lobbySpectators(), order: S.net ? [...S.net.peers.keys()] : [], hostId: S.me.id,
   };
 }
@@ -452,6 +454,7 @@ function renderGameSummary(L = S.lobby) {
   const m = MODES[L.mode] || MODES.classic, df = DIFFICULTIES[L.difficulty] || DIFFICULTIES.easy, th = THEMES[L.theme] || THEMES[curTheme()];
   const extras = [m.pvp && L.mode !== 'duel' && L.bots ? 'AI bots on' : '', L.mode === 'deathmatch' && L.zone ? 'shrinking zone' : '', L.atmo && L.atmo !== 'default' ? { clear: 'clear day', night: 'night', fog: 'fog' }[L.atmo] : ''].filter(Boolean);
   const rows = [['mode', 'Mode', m.name, m.desc], ['battle', 'Map', mapLabel(L), extras.join(' · ')], ['battle', 'Difficulty', df.name, df.desc], ['style', 'Style', th.name, S.isHost ? 'applies to everyone' : 'set by the host']];
+  if (L.pause) rows.push(['battle', 'Pause', L.pause === 'host' ? 'Host only' : 'Anyone', L.pause === 'host' ? 'only the host can pause' : 'any player can pause']); // hosts on older versions don't say
   const box = $('#gameSummary');
   box.innerHTML = rows.map(([step, k, v, sub]) => `<div class="gs-row"><span class="k">${k}</span><span class="v">${esc(v)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>${S.isHost ? `<button class="btn small ghost" data-step="${step}">Change</button>` : ''}</div>`).join('');
   box.querySelectorAll('button').forEach(b => b.onclick = () => { sfx('click'); editSetup(b.dataset.step); });
@@ -462,6 +465,7 @@ $('#sizeSel').onchange = e => { S.lobby.size = e.target.value; store.set('nt_siz
 $('#atmoSel').onchange = e => { S.lobby.atmo = e.target.value; store.set('nt_atmo', e.target.value); renderSetup(); broadcastLobby(); };
 $('#zoneToggle').onchange = e => { S.lobby.zone = e.target.checked; store.set('nt_zone', e.target.checked ? '1' : '0'); renderSetup(); broadcastLobby(); };
 $('#botsToggle').onchange = e => { S.lobby.bots = e.target.checked; store.set('nt_bots', e.target.checked ? '1' : '0'); renderSetup(); broadcastLobby(); };
+$('#pauseSel').onchange = e => { S.lobby.pause = e.target.value === 'host' ? 'host' : 'any'; store.set('nt_pause', S.lobby.pause); renderSetup(); broadcastLobby(); };
 $('#btnStart').onclick = () => startGame();
 $('#btnTakeSlot').onclick = requestPlay;
 $('#btnJoinPlay').onclick = requestPlay;
@@ -636,6 +640,8 @@ function renderBattle() {
   $('#sizeSel').value = mapSize || L.size || 'auto'; $('#sizeSel').disabled = !!mapSize;
   $('#sizeRow').classList.toggle('dim', !!mapSize);
   $('#atmoSel').value = L.atmo || 'default';
+  $('#pauseRow').classList.toggle('hidden', !S.online && wiz.purpose !== 'room'); // online rooms only
+  $('#pauseSel').value = L.pause || 'any';
   $('#zoneRow').classList.toggle('hidden', L.mode !== 'deathmatch');
   $('#zoneToggle').checked = !!L.zone;
   const dp = $('#diffPicker'); dp.innerHTML = '';
@@ -710,6 +716,9 @@ const hostHandlers = {
       if (playerCount() >= roomCap()) { S.net.sendTo(from, { y: 'note', t: roomFull() ? 'Still full — wait for a free slot' : `This free room holds ${FREE.players} players — wait for a free slot` }, true); return; }
       hp.role = 'player'; addPeerPlayers(from);
       renderLobby(); broadcastLobby();
+    } else if (m.y === 'pause') { // the room's rule decides: players can pause unless it's host only; only the pauser (or the host) resumes
+      if (m.on && S.game && !S.paused && !S.endShown && hp.role === 'player' && S.lobby.pause === 'any') setPause({ by: from, name: (S.net.peers.get(from) || {}).name || 'A player' });
+      else if (!m.on && S.pz && S.pz.by === from) setPause(null);
     } else if (m.y === 'ping') S.net.sendTo(from, { y: 'pong', t: m.t });
   },
 };
@@ -731,10 +740,10 @@ function startGame() {
   const atmo = S.lobby.atmo && S.lobby.atmo !== 'default' ? S.lobby.atmo : (useMap && useMap.atmo) || 'clear';
   S.game = new Game({ mode: S.lobby.mode, customMap: useMap ? useMap.data : null, customName: useMap ? useMap.name : '', seed: (Math.random() * 1e9) | 0, bots: S.lobby.bots, difficulty: S.lobby.difficulty, players, size: S.lobby.size, atmo, zone: S.lobby.zone });
   for (const hp of S.peers.values()) { hp.lastRev = -1; hp.ev = []; }
-  S.lobby.started = true; S.endShown = false; S.paused = false; S.renderRev = -1; lastCkpt = 0;
+  S.lobby.started = true; S.endShown = false; S.paused = false; S.pz = null; menuOpen = false; S.renderRev = -1; lastCkpt = 0;
   broadcastLobby();
   $('#endMenu').classList.add('hidden');
-  show('game');
+  show('game'); renderPause();
 }
 
 // fixed-rate simulation driven by a worker timer (keeps running in background tabs)
@@ -742,7 +751,11 @@ let lastSim = performance.now(), simAcc = 0, lastCkpt = 0;
 function simTick() {
   const now = performance.now();
   const dt = Math.min(1, (now - lastSim) / 1000); lastSim = now;
-  if (!S.isHost || !S.game || S.paused) { simAcc = 0; return; }
+  if (!S.isHost || !S.game || S.paused) {
+    simAcc = 0;
+    if (S.isHost && S.game && S.net) netTick(now); // paused online: the room still gets a still frame now and then, and checkpoints
+    return;
+  }
   const active = S.screen === 'game';
   const idle = { d: -1, f: false, a: false };
   S.game.setInput(S.me.id, active ? input.read(0) : idle);
@@ -755,13 +768,14 @@ function simTick() {
     S.localEv.push(...ev);
     for (const hp of S.peers.values()) { hp.ev.push(...ev); if (hp.ev.length > 80) hp.ev.splice(0, hp.ev.length - 80); }
   }
-  if (S.net) {
-    sendSnapshots(now);
-    if (now - lastCkpt > 2000 && S.peers.size) { // full-state checkpoint so anyone can take over as host
-      lastCkpt = now;
-      const d = S.game.serialize();
-      for (const id of S.peers.keys()) S.net.sendTo(id, { y: 'ckpt', d }, true);
-    }
+  if (S.net) netTick(now);
+}
+function netTick(now) {
+  sendSnapshots(now);
+  if (now - lastCkpt > 2000 && S.peers.size) { // full-state checkpoint so anyone can take over as host
+    lastCkpt = now;
+    const d = S.game.serialize();
+    for (const id of S.peers.keys()) S.net.sendTo(id, { y: 'ckpt', d }, true);
   }
 }
 function sendSnapshots(now) {
@@ -769,7 +783,7 @@ function sendSnapshots(now) {
   for (const [id, hp] of S.peers) {
     const mode = S.net.peerMode(id);
     if (mode === 'pending' || mode === 'none') continue;
-    const interval = mode === 'rtc' ? (hp.role === 'spectator' ? 66 : 50) : 100;
+    const interval = S.paused ? 1000 : mode === 'rtc' ? (hp.role === 'spectator' ? 66 : 50) : 100;
     if (now - hp.lastSend < interval) continue;
     hp.lastSend = now;
     if (!base) base = S.game.snapshot(false);
@@ -804,6 +818,7 @@ const clientHandlers = {
       if (m.l.started && S.screen !== 'game') { S.endShown = false; show('game'); }
       else if (!m.l.started && S.screen === 'game') { $('#endMenu').classList.add('hidden'); S.snaps = []; S.checkpoint = null; show('lobby'); }
       if (S.screen === 'lobby') renderLobby();
+      syncPause(m.l);
     } else if (m.y === 'snap') onSnap(m);
     else if (m.y === 'ckpt') S.checkpoint = m.d;
     else if (m.y === 'pong') S.rtt = performance.now() - m.t;
@@ -838,7 +853,8 @@ async function becomeHost(oldId) {
   S.net.on = hostHandlers;
   await S.net.promote();
   S.peers = new Map();
-  S.lobby = { theme: curTheme(), mode: prev.mode, map: prev.map || null, bots: prev.bots, difficulty: prev.difficulty || 'easy', started: false, players: [], spectators: [], order: [] };
+  S.lobby = { theme: curTheme(), mode: prev.mode, map: prev.map || null, bots: prev.bots, difficulty: prev.difficulty || 'easy', pause: prev.pause === 'host' ? 'host' : 'any', started: false, players: [], spectators: [], order: [] };
+  S.pzAsk = null; menuOpen = false; // a paused game stays paused (S.paused, S.pz): the new host can resume it
   if (prev.started && S.checkpoint) {
     try {
       S.game = Game.deserialize(S.checkpoint);
@@ -854,9 +870,10 @@ async function becomeHost(oldId) {
       }, 15000);
     } catch (e) { console.error(e); S.game = null; }
   } else S.game = null;
+  if (!S.game) { S.paused = false; S.pz = null; }
   if (!S.game && S.screen === 'game') show('lobby');
   toast('The host left — you are now hosting this room', 4000);
-  renderLobby(); broadcastLobby();
+  renderLobby(); broadcastLobby(); renderPause();
 }
 
 function onSnap(m) {
@@ -984,16 +1001,56 @@ $('#btnToLobby').onclick = () => {
   if (S.fromEditor) { leaveAll(); return; }
   S.game = null; S.lobby.started = false; S.endShown = false; $('#endMenu').classList.add('hidden');
   if (!S.online) { wiz.purpose = 'solo'; wiz.edit = false; wiz.step = 0; placeP2('setup'); renderSetup(); show('setup'); return; }
+  S.paused = false; S.pz = null; menuOpen = false; renderPause();
   broadcastLobby(); renderLobby(); show('lobby');
 };
 
 // ---------- pause ----------
+// Offline the menu pauses the game. Online a pause stops the host's game for everyone and says who paused it;
+// the room's Pause option lets any player pause (default) or only the host. The pauser or the host resumes.
+// Guests ask the host (it checks the rule) and see their own request at once; the host's word (S.pz) wins.
+let menuOpen = false; // online: this player opened the menu (it can be open while the game runs)
+const canPause = () => S.isHost || (S.role === 'player' && S.lobby.pause === 'any');
+const shownPause = () => { const a = S.pzAsk; return a ? (a.on ? S.pz || { by: S.me.id, name: S.me.name } : null) : S.pz; };
+function setPause(pz) { // host: stop or restart the game for everyone
+  S.pz = pz; S.paused = !!pz;
+  if (pz) { lastCkpt = 0; for (const hp of S.peers.values()) hp.lastSend = 0; } else menuOpen = false; // everyone gets the stopped frame now, and a fresh checkpoint (a new host picks up exactly here)
+  broadcastLobby(); renderPause();
+}
+function askPause(on) {
+  if (!on) menuOpen = false;
+  if (S.isHost) setPause(on ? { by: S.me.id, name: S.me.name } : null);
+  else if (S.net) { S.pzAsk = { on, t: performance.now() }; S.net.sendToHost({ y: 'pause', on }, true); }
+}
+function syncPause(l) { // guest: the room's pause, as the host has it
+  const pz = (l.started && l.paused) || null, a = S.pzAsk;
+  if (a && (!!pz === a.on || performance.now() - a.t > 3000)) S.pzAsk = null; // our request has been answered (or never will be)
+  if (S.pz && !pz) { S.clockOff = null; menuOpen = false; } // resumed: the game clock carries on from where it stopped
+  if (!l.started) menuOpen = false;
+  S.pz = pz; S.paused = !!pz;
+  renderPause();
+}
 function togglePause(force) {
-  const m = $('#pauseMenu');
-  const open = force !== undefined ? force : m.classList.contains('hidden');
-  m.classList.toggle('hidden', !open);
-  if (!S.online && S.isHost) S.paused = open;
-  $('#pauseNote').textContent = S.online ? 'Online game keeps running while this menu is open.' : '';
+  const open = force !== undefined ? force : $('#pauseMenu').classList.contains('hidden');
+  const pz = S.online ? shownPause() : null;
+  if (!S.online) S.paused = open;
+  else if (pz) { if (!open && (pz.by === S.me.id || S.isHost)) askPause(false); } // a paused game: only the pauser or the host resumes
+  else if (!open) menuOpen = false;
+  else { menuOpen = true; if (canPause() && !S.endShown) askPause(true); } // a finished game isn't paused
+  renderPause();
+}
+function renderPause() {
+  const pz = S.online ? shownPause() : null, hostId = S.isHost ? S.me.id : S.lobby.hostId;
+  $('#pauseMenu').classList.toggle('hidden', !(S.online ? pz || menuOpen : S.paused));
+  $('#pauseTitle').textContent = S.online && !pz ? 'Menu' : 'Paused';
+  $('#btnResume').classList.toggle('hidden', !!pz && pz.by !== S.me.id && !S.isHost);
+  let note = '';
+  if (pz) {
+    const here = [...lobbyPlayers(), ...lobbySpectators()].some(p => p.id === pz.by);
+    note = pz.by === S.me.id ? 'You paused the game for everyone.' : pz.by === hostId ? 'The host paused the game.'
+      : `${pz.name} paused the game.` + (S.isHost ? '' : here ? ` ${pz.name} or the host can resume.` : ' The host can resume.');
+  } else if (S.online && !S.isHost) note = S.role !== 'player' ? 'Spectators cannot pause.' : S.lobby.pause === 'host' ? 'Only the host can pause this room.' : 'The game keeps running.';
+  $('#pauseNote').textContent = note;
   updateStyleLock();
 }
 $('#btnPause').onclick = () => togglePause();
