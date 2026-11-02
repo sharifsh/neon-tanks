@@ -1,6 +1,11 @@
 # Neon Tanks
 Modern web remake of the 1990 tank classic. Static site — no build step.
 - Online rooms up to 8 players: WebRTC P2P (host-authoritative), Supabase Realtime for signaling + relay fallback.
+- Relay servers (TURN): the Edge Function `turn` (`supabase/functions/turn/index.ts`, JWT verification off) hands out
+  short-lived Cloudflare Realtime TURN credentials (fetched when a room opens, `net.js`), so players whose networks
+  block direct links still get a WebRTC link through Cloudflare instead of the Supabase relay. Needs the secrets
+  `CF_TURN_KEY_ID` and `CF_TURN_API_TOKEN`; without them it returns an empty list and rooms use STUN only, as before.
+  Only the game's own sites and apps get credentials.
 - Shared maps: Supabase table `tank_levels` (project Tank_Battles).
 - Local offline test of multiplayer: open two tabs with `?fakenet=1`.
 

@@ -14,7 +14,31 @@ export async function sbReady() {
   return (_sb = _sb || createClient(SUPABASE_URL, SUPABASE_KEY, { realtime: { params: { eventsPerSecond: 40 } } }));
 }
 
-const ICE = { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }] };
+const STUN = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }];
+// Relay (TURN) servers from the "turn" edge function (Cloudflare): when two devices can't reach each other directly,
+// the relay carries their game instead of the Supabase channel. Fetched when a room opens; until they arrive, or if
+// the relay isn't set up, connections use STUN only (and the Supabase relay as before). One side having them is enough.
+// ?fakenet=1 (offline tests) is read at load: the room URL replaces it once a room opens.
+const FAKENET = /fakenet/.test(location.search);
+let turn = null, turnAt = 0, askedAt = -Infinity, turnReq = null;
+const iceConfig = () => ({ iceServers: turn && Date.now() - turnAt < 3 * 3600e3 ? turn : STUN });
+function loadIce() {
+  // Asks again after 30 minutes (each credential lasts 4 hours), or after 5 when the last answer had no relay.
+  if (turnReq || FAKENET || Date.now() - askedAt < (turn ? 30 : 5) * 60e3) return;
+  askedAt = Date.now();
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 5000);
+  turnReq = fetch(SUPABASE_URL + '/functions/v1/turn', { method: 'POST', headers: { apikey: SUPABASE_KEY }, signal: ctl.signal })
+    .then(r => (r.ok ? r.json() : null))
+    .then(j => {
+      // Port 53 addresses are left out: browsers refuse them.
+      const list = (j && Array.isArray(j.iceServers) ? j.iceServers : [])
+        .map(x => ({ ...x, urls: [].concat(x.urls || []).filter(u => typeof u === 'string' && !/:53(\?|$)/.test(u)) }))
+        .filter(x => x.urls.length);
+      if (list.length) { turn = list; turnAt = Date.now(); }
+    })
+    .catch(() => {})
+    .finally(() => { clearTimeout(t); turnReq = null; });
+}
 const RTC_TIMEOUT = 7000;
 
 export function makeRoomCode() {
@@ -32,6 +56,7 @@ export class Net {
   }
 
   async connect() {
+    loadIce();
     await sbReady();
     const ch = this.ch = sb().channel('tanks:' + this.code, { config: { broadcast: { self: false, ack: false }, presence: { key: this.me.id } } });
     ch.on('broadcast', { event: 'sig' }, ({ payload }) => this.onSig(payload));
@@ -129,7 +154,8 @@ export class Net {
 
   createPeer(id, info) {
     const old = this.peers.get(id); if (old) try { old.pc.close(); } catch (e) {}
-    const pc = new RTCPeerConnection(ICE);
+    loadIce();
+    const pc = new RTCPeerConnection(iceConfig());
     const peer = { id, info: info || {}, name: String(info.name || 'Player').slice(0, 16), cls: info.cls, pc, dc: null, rel: null, mode: 'pending', welcomed: true, seq: -1, ice: [], created: Date.now(), lastSeen: Date.now() };
     this.peers.set(id, peer);
     peer.dc = pc.createDataChannel('game', { ordered: false, maxRetransmits: 0 });
@@ -148,7 +174,8 @@ export class Net {
   async acceptOffer(from, offer) {
     this.hostId = from;
     if (this.pc) try { this.pc.close(); } catch (e) {}
-    const pc = this.pc = new RTCPeerConnection(ICE);
+    loadIce();
+    const pc = this.pc = new RTCPeerConnection(iceConfig());
     this.mode = 'pending';
     pc.ondatachannel = e => {
       const c = e.channel;
