@@ -90,3 +90,18 @@ a.btn { display: inline-block; text-decoration: none; }
   .who #whoEmail { max-width: 46vw; }
 }
 @media (max-width: 560px) { .sform .actions button { flex: 1; } }
+
+/* leaderboards */
+.lbf { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.lbf select { width: auto; padding: 8px 10px; font-size: 15px; }
+.lbcheck { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 700; cursor: pointer; }
+.lbcheck input { width: 16px; height: 16px; accent-color: var(--accent); }
+.lbwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.lbt { width: 100%; border-collapse: collapse; font-size: 15px; }
+.lbt th { text-align: left; font: 700 11px Orbitron, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.lbt td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.05); white-space: nowrap; }
+.lbt .num { text-align: right; font-variant-numeric: tabular-nums; }
+.lbt .nm { font-weight: 700; }
+.lbt .tag { font: 700 11px Rajdhani, sans-serif; text-transform: uppercase; letter-spacing: .08em; color: #ff8a3d; border: 1px solid rgba(255,138,61,.5); border-radius: 6px; padding: 1px 6px; }
+.lbt tr.off td:not(.act) { opacity: .5; }
+.lbt .act { text-align: right; display: flex; gap: 6px; justify-content: flex-end; }

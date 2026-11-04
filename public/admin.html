@@ -42,6 +42,7 @@
     <nav class="tabs" role="tablist" aria-label="Admin">
       <button type="button" role="tab" id="tabInbox" aria-controls="inbox" aria-selected="true">Inbox <span class="badge" id="newBadge" hidden></span></button>
       <button type="button" role="tab" id="tabSettings" aria-controls="settings" aria-selected="false">Email settings <span class="dot-warn" id="mailWarn" hidden title="Email is off"></span></button>
+      <button type="button" role="tab" id="tabBoards" aria-controls="boards" aria-selected="false">Leaderboards</button>
     </nav>
 
     <div id="inbox" role="tabpanel" aria-labelledby="tabInbox">
@@ -128,6 +129,30 @@
           <p class="muted">The password is stored encrypted and is never shown again, here or anywhere else.</p>
         </aside>
       </div>
+    </div>
+    <div id="boards" role="tabpanel" aria-labelledby="tabBoards" hidden>
+      <div class="bar">
+        <div class="lbf">
+          <select id="lbBoard" aria-label="Board">
+            <option value="">All boards</option>
+            <option value="classic:easy">Classic · Easy</option><option value="classic:normal">Classic · Normal</option><option value="classic:hard">Classic · Hard</option><option value="classic:insane">Classic · Insane</option>
+            <option value="survival:easy">Survival · Easy</option><option value="survival:normal">Survival · Normal</option><option value="survival:hard">Survival · Hard</option><option value="survival:insane">Survival · Insane</option>
+          </select>
+          <select id="lbPeriod" aria-label="Period"><option value="week">This week</option><option value="all">All time</option><option value="">Every week</option></select>
+          <label class="lbcheck"><input type="checkbox" id="lbHidden"> Hidden only</label>
+        </div>
+        <button type="button" class="btn ghost small" id="lbRefresh">Refresh</button>
+      </div>
+      <p class="hint small">Newest first. <b>Hide</b> takes one entry off the public board. <b>Hide player</b> takes off everything that player has posted, and keeps what they post later hidden too.</p>
+      <div class="lbwrap">
+        <table class="lbt">
+          <thead><tr><th>When</th><th>Board</th><th>Callsign</th><th class="num">Reached</th><th class="num">Score</th><th class="num">Kills</th><th class="num">Time</th><th>From</th><th></th></tr></thead>
+          <tbody id="lbRows"></tbody>
+        </table>
+      </div>
+      <p id="lbEmpty" class="empty" hidden>No entries here.</p>
+      <button type="button" id="lbMore" class="btn ghost small" hidden>Show older</button>
+      <p id="lbStatus" class="status" role="status" aria-live="polite"></p>
     </div>
   </section>
 </main>

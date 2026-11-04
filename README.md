@@ -16,6 +16,13 @@ Modern web remake of the 1990 tank classic. Static site — no build step.
 Per-player style picker (menu, lobby, pause): Neon, Modern Warfare (realistic MBTs), Miniature (tilt-shift diorama),
 Pixel Remaster, Winter Front, Desert Storm, Blueprint. Styles are purely visual (themes.js); gameplay is identical.
 
+## Leaderboards
+- Solo Classic and Survival results, one board per mode and difficulty, for this week (ISO week, UTC; starts over Monday) and all time; each player's best counts (stage/wave, then score, then quicker). Two players on one device, online rooms, the editor's test play and own/community maps don't post.
+- Posted automatically when a game ends or is left (Settings switch to turn it off; Settings → Remove my leaderboard results). Offline results wait on the device and go out later. `public/leaderboard.js` (client), `game.splits` (stage/wave clear times).
+- Server function `leaderboard` (`supabase/functions/leaderboard/`): checks each result against the game's own pacing (no stage cleared quicker than its enemies can arrive), kill and score bounds, a callsign filter and posting limits; tables `tank_scores`, `tank_score_blocked`, `tank_score_throttle` (migration `*_leaderboard.sql`). Player IDs are random, made on the device, never shown.
+- Moderation: the admin page's Leaderboards tab (hide an entry, or hide a player and everything they post).
+- Tests: `tests/leaderboard-server.spec.js` (rules, limits, a simulated perfect player is always accepted), `tests/leaderboard-ui.spec.js` (the game and admin page), `tests/leaderboard-sql.spec.js` (the migration in an in-process Postgres, PGlite, gives the same answers as the in-memory stand-in). None of them touch the real database.
+
 ## App Store / Google Play (Capacitor 8)
 Store name **Neon Tanks: Arena Battle** · bundle/app ID `com.sharifsh.neontanks` · SKU `neontanks001`.
 - Web files live in `public/` (Netlify publishes `public/`). The website is the free version.

@@ -40,6 +40,7 @@ export class Game {
     this.status = 'play'; this.statusAt = 0;
     this.banner = null;
     this.stage = 0; this.wave = 0;
+    this.splits = []; // game time when each Classic stage / Survival wave was cleared (the leaderboard checks the pace)
     this.teamScore = [0, 0];
     this.teamFreeze = [0, 0];
     this.freezeUntil = 0;
@@ -1159,12 +1160,12 @@ export class Game {
     const bossPending = this.bossStage && (!this.bossSpawned || this.bossAlive);
     if (!this.queue.length && !enemies && !bossPending) {
       if (this.mode === 'classic') {
-        this.status = 'clear'; this.statusAt = this.time;
+        this.status = 'clear'; this.statusAt = this.time; this.splits.push(Math.round(this.time * 10) / 10);
         for (const p of this.players.values()) p.score += 1000;
         this.setBanner('STAGE CLEAR', '+1000 each · next stage incoming', 3.8);
         this.emit({ k: 'sfx', n: 'win' });
       } else if (!this.nextWaveAt) {
-        this.nextWaveAt = this.time + 5;
+        this.nextWaveAt = this.time + 5; this.splits.push(Math.round(this.time * 10) / 10);
         this.setBanner(`WAVE ${this.wave} CLEARED`, 'Next wave in 5s', 3);
         this.emit({ k: 'sfx', n: 'win' });
       }

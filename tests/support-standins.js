@@ -93,18 +93,21 @@ export function backend({ connect, origins = [/^http:\/\/(neon\.test|localhost|1
   return Object.assign(mem, { handle, flush: async () => { while (pending.length) await pending.shift(); } }); // keeps the live settings/password getters
 }
 
-// Routes the page's calls to the stand-ins: the support function, and Supabase sign-in for the admin page.
-// Anything else aimed at the real backend is refused and recorded.
-export async function routeBackend(page, be, { accounts = { 'boss@example.com': { password: 'admin-pass', token: 'admin-token' }, 'someone@example.com': { password: 'pw', token: 'player-token' } } } = {}) {
+// Routes the page's calls to the stand-ins: the support function (and any other server functions given in
+// `functions`, by name), and Supabase sign-in for the admin page. Anything else aimed at the real backend is refused
+// and recorded.
+export async function routeBackend(page, be, { accounts = { 'boss@example.com': { password: 'admin-pass', token: 'admin-token' }, 'someone@example.com': { password: 'pw', token: 'player-token' } }, functions = {} } = {}) {
   const calls = [], stray = [];
+  const handlers = { support: be.handle, ...functions };
   await page.route(/supabase\.co|jsdelivr\.net|fonts\.(googleapis|gstatic)\.com/, async route => {
     const req = route.request();
     const url = new URL(req.url());
-    if (url.pathname === '/functions/v1/support') {
+    const fn = /^\/functions\/v1\/([a-z-]+)$/.exec(url.pathname);
+    if (fn && handlers[fn[1]]) {
       const headers = req.headers();
       let body;
       if (req.method() === 'POST') { body = req.postData(); try { calls.push(JSON.parse(body)); } catch { calls.push(body); } }
-      const r = await be.handle(new Request(url.href, { method: req.method(), headers, body }));
+      const r = await handlers[fn[1]](new Request(url.href, { method: req.method(), headers, body }));
       return route.fulfill({ status: r.status, headers: Object.fromEntries(r.headers), body: r.status === 204 ? '' : await r.text() });
     }
     const cors = { 'access-control-allow-origin': req.headers().origin || '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS' };

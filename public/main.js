@@ -10,6 +10,7 @@ import { decodeMap, generateMap, mapLayout, mapDims } from './levels.js';
 import { builtinMaps } from './maps.js';
 import { initAudio, playEvents, startMusic, setVolume, sfx, setAudioTheme, setEngine, audioDebug } from './audio.js';
 import { Full, FREE, SITE_URL, APP_STORE_URL, PLAY_STORE_URL, modeFree, diffFree, themeFree, classFree, mapFree } from './store.js';
+import { LB_MODES, lbOn, setLbOn, fetchBoard, postResult, flushPending, hasPending, forgetMe, useName } from './leaderboard.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -30,6 +31,7 @@ const S = {
   game: null, paused: false, pz: null, pzAsk: null, peers: new Map(), // pz: who paused the online game { by, name }
   snaps: [], mapStr: '', clientEv: [], localEv: [], clockOff: null, rtt: 0,
   pendingMap: null, fromEditor: false, endShown: false, checkpoint: null, migrating: false,
+  run: null, // this game for the leaderboard: { solo, map, posted }
 };
 const LAYOUT_MODE = { C: 'classic', A: 'battle', D: 'deathmatch', U: 'duel' };
 // a new game starts from the player's last choices (mode, map size, conditions, bots, difficulty)
@@ -217,13 +219,14 @@ const p2Name = () => (S.p2.name || (S.me.name ? S.me.name + ' 2' : 'Player 2')).
 // ---------- menu ----------
 $('#nameInput').value = S.me.name;
 $('#nameInput').addEventListener('input', e => { S.me.name = e.target.value.trim().slice(0, 16); store.set('nt_name', S.me.name); });
+$('#nameInput').addEventListener('change', () => { if (hasPending()) flushPending(); }); // a result held back for its callsign
 function requireName() {
   if (!S.me.name) { S.me.name = 'Tanker' + Math.floor(100 + Math.random() * 900); $('#nameInput').value = S.me.name; store.set('nt_name', S.me.name); }
   initAudio(); startMusic();
 }
 $('#btnSolo').onclick = () => openSetup('solo');
 $('#btnCreate').onclick = () => openSetup('room');
-$('#btnSettings').onclick = () => { renderStick(); $('#settingsModal').classList.remove('hidden'); };
+$('#btnSettings').onclick = () => { renderStick(); $('#lbPost').checked = lbOn(); $('#settingsModal').classList.remove('hidden'); };
 $('#btnHelp').onclick = () => { renderStick(); $('#helpModal').classList.remove('hidden'); };
 $('#btnJoin').onclick = () => joinRoom($('#joinCode').value.trim().toUpperCase());
 $('#joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btnJoin').click(); });
@@ -739,10 +742,11 @@ function startGame() {
   const useMap = map && mapLayout(map.data) === MODES[S.lobby.mode].layout ? map : null;
   const atmo = S.lobby.atmo && S.lobby.atmo !== 'default' ? S.lobby.atmo : (useMap && useMap.atmo) || 'clear';
   S.game = new Game({ mode: S.lobby.mode, customMap: useMap ? useMap.data : null, customName: useMap ? useMap.name : '', seed: (Math.random() * 1e9) | 0, bots: S.lobby.bots, difficulty: S.lobby.difficulty, players, size: S.lobby.size, atmo, zone: S.lobby.zone });
+  S.run = { solo: !S.online && !S.net && !S.fromEditor && players.length === 1, map: useMap ? (useMap.builtin && /^b:/.test(useMap.id || '') ? useMap.id : 'custom') : 'random', posted: false };
   for (const hp of S.peers.values()) { hp.lastRev = -1; hp.ev = []; }
   S.lobby.started = true; S.endShown = false; S.paused = false; S.pz = null; menuOpen = false; S.renderRev = -1; lastCkpt = 0;
   broadcastLobby();
-  $('#endMenu').classList.add('hidden');
+  $('#endMenu').classList.add('hidden'); $('#endBoard').classList.add('hidden');
   show('game'); renderPause();
 }
 
@@ -994,6 +998,8 @@ function showEnd(h) {
   $('#endHost').classList.toggle('hidden', !S.isHost);
   $('#btnToLobby').textContent = S.fromEditor ? 'Back to editor' : S.online ? 'Back to room' : 'Change game';
   $('#endWait').classList.toggle('hidden', S.isHost);
+  $('#endBoard').classList.add('hidden');
+  postRun('end');
   setTimeout(() => { if (S.endShown) $('#endMenu').classList.remove('hidden'); }, 1800);
 }
 $('#btnAgain').onclick = () => startGame();
@@ -1055,10 +1061,11 @@ function renderPause() {
 }
 $('#btnPause').onclick = () => togglePause();
 $('#btnResume').onclick = () => togglePause(false);
-$('#btnQuit').onclick = () => leaveAll();
+$('#btnQuit').onclick = () => { postRun('leave'); leaveAll(); };
 addEventListener('keydown', e => {
   if (e.key !== 'Escape' || input.capture) return;
   if (!$('#controlsModal').classList.contains('hidden')) { $('#controlsModal').classList.add('hidden'); return; }
+  if (!$('#lbModal').classList.contains('hidden')) { $('#lbModal').classList.add('hidden'); return; }
   if (S.screen === 'game' && !S.endShown) togglePause();
 });
 addEventListener('resize', () => {
@@ -1396,6 +1403,131 @@ Full.onChange(why => {
   }
 });
 
+// ---------- leaderboards ----------
+// Solo Classic and Survival games on a built-in or random map post their result when the game ends, or when the
+// player leaves it, unless posting is off in Settings. A board shows each player's best, this week (it starts over
+// on Monday, UTC) and of all time.
+const LB_UNIT = { classic: 'Stage', survival: 'Wave' };
+useName(() => S.me.name);
+const lbView = (() => {
+  const [m, d, p] = store.get('nt_lb_view', '').split(':');
+  return { mode: LB_MODES.includes(m) ? m : 'classic', difficulty: DIFFICULTIES[d] ? d : null, period: p === 'all' ? 'all' : 'week' };
+})();
+let lbSeq = 0;
+const num = n => Number(n || 0).toLocaleString('en-US');
+
+// this game as the leaderboard wants it, { why } when it doesn't count, or null when the leaderboard doesn't apply
+function lbRunFor() {
+  const g = S.game, r = S.run;
+  if (!g || !r || r.posted || !r.solo || !LB_MODES.includes(g.mode)) return null;
+  const me = g.players.get(S.me.id);
+  const level = g.mode === 'survival' ? g.wave : g.stage;
+  if (!me || level < 1 || me.score <= 0) return null;
+  if (r.map === 'custom') return { why: "Games on your own or community maps don't count toward the leaderboard." };
+  return { run: { mode: g.mode, difficulty: g.difficulty, level, score: me.score, kills: me.kills, seconds: Math.round(g.time * 10) / 10, splits: [...(g.splits || [])], cls: me.cls, map: r.map, size: sizeKey(g.mapW, g.mapH) }, name: S.me.name || me.name };
+}
+function lbResultText(r, run) {
+  const unit = LB_UNIT[run.mode].toLowerCase();
+  if (r.ok) {
+    const w = r.weekly, a = r.allTime || {};
+    if (!w) return a.rank == null ? 'Result posted.' : `Result posted from an earlier week: all time #${a.rank}`; // kept while offline
+    if (w.rank == null || a.rank == null) return 'Result posted.';
+    if (a.improved) return `New personal best! #${a.rank} of all time · #${w.rank} this week`;
+    if (w.improved) return `New best this week: #${w.rank} · all time #${a.rank}`;
+    return `Your best this week: ${unit} ${w.level} (#${w.rank}) · all time #${a.rank}`;
+  }
+  if (r.reason === 'offline') return r.status === 429 ? 'The leaderboard is busy. Your result will be posted later.' : "You're offline. Your result will be posted when you're back online.";
+  if (r.reason === 'name') return "This callsign can't be shown on the leaderboard. Change it on the home screen and your result will be posted.";
+  return "This result couldn't be posted to the leaderboard.";
+}
+function setEndBoard(text) { $('#endBoardText').textContent = text; $('#endBoard').classList.remove('hidden'); }
+// where: 'end' (the end-of-game screen shows how it went) or 'leave' (a short note on the way out)
+async function postRun(where) {
+  const x = lbRunFor();
+  if (!x) return;
+  S.run.posted = true;
+  if (x.run) S.run.view = { mode: x.run.mode, difficulty: x.run.difficulty, period: 'week' };
+  const say = text => { if (where === 'end' && S.endShown) setEndBoard(text); else toast(text, 4500); };
+  if (x.why) { if (where === 'end') say(x.why); return; }
+  if (!lbOn()) { if (where === 'end') say('Leaderboard posting is off. You can turn it on in Settings.'); return; }
+  if (where === 'end') say('Posting your result…');
+  const r = await postResult(x.name, x.run);
+  say(lbResultText(r, x.run));
+}
+$('#endBoardOpen').onclick = () => openBoard((S.run && S.run.view) || {});
+
+function untilText(iso) {
+  const h = (Date.parse(iso) - Date.now()) / 3600e3;
+  if (!(h > 0)) return 'soon';
+  if (h >= 36) return `in ${Math.round(h / 24)} days`;
+  if (h >= 1.5) return `in ${Math.round(h)} hours`;
+  return 'within the hour';
+}
+function openBoard(opts = {}) {
+  Object.assign(lbView, opts);
+  if (!lbView.difficulty) lbView.difficulty = DIFFICULTIES[S.lobby.difficulty] ? S.lobby.difficulty : 'normal';
+  $('#lbModal').classList.remove('hidden');
+  renderBoardTabs(); loadBoard();
+  if (hasPending()) flushPending().then(n => { if (n && !$('#lbModal').classList.contains('hidden')) loadBoard(); });
+}
+function renderBoardTabs() {
+  document.querySelectorAll('#lbModes [data-lbmode]').forEach(b => b.classList.toggle('sel', b.dataset.lbmode === lbView.mode));
+  $('#lbDiffs').innerHTML = Object.entries(DIFFICULTIES).map(([k, d]) => `<button data-lbdiff="${k}" role="radio" aria-checked="${k === lbView.difficulty}"${k === lbView.difficulty ? ' class="sel"' : ''}>${d.name}</button>`).join('');
+  document.querySelectorAll('#lbPeriods [data-lbperiod]').forEach(b => { const on = b.dataset.lbperiod === lbView.period; b.classList.toggle('sel', on); b.setAttribute('aria-checked', on); });
+  store.set('nt_lb_view', `${lbView.mode}:${lbView.difficulty}:${lbView.period}`);
+}
+async function loadBoard() {
+  const seq = ++lbSeq, v = { ...lbView }, list = $('#lbList'), foot = $('#lbFoot');
+  list.innerHTML = '<div class="lb-msg muted">Loading…</div>';
+  foot.textContent = '';
+  const r = await fetchBoard(v);
+  if (seq !== lbSeq) return; // a newer board was asked for meanwhile
+  if (!r.ok) {
+    list.innerHTML = `<div class="lb-msg"><p class="muted">${r.status === 0 ? "Can't reach the leaderboard. Check your connection." : "The leaderboard isn't available right now."}</p><button class="btn small" id="lbRetry">Try again</button></div>`;
+    $('#lbRetry').onclick = () => loadBoard();
+    return;
+  }
+  const unit = LB_UNIT[v.mode];
+  const row = e => `<div class="lb-row${e.me ? ' me' : ''}${e.rank <= 3 ? ` top${e.rank}` : ''}"><span class="rk">${e.rank}</span><span class="nm">${esc(e.name)}${e.me ? '<em>you</em>' : ''}</span><span class="lv">${unit} ${e.level}</span><span class="sc">${num(e.score)}</span></div>`;
+  if (!r.entries.length) {
+    list.innerHTML = `<div class="lb-msg muted">${v.period === 'week' ? 'No results yet this week.' : 'No results yet.'} Finish a solo ${MODES[v.mode].name} game on ${DIFFICULTIES[v.difficulty].name} to put your name here.</div>`;
+  } else {
+    list.innerHTML = `<div class="lb-row lb-head"><span class="rk">#</span><span class="nm">Player</span><span class="lv">${unit}</span><span class="sc">Score</span></div>`
+      + r.entries.map(row).join('') + (r.me && !r.entries.some(e => e.me) ? `<div class="lb-gap" aria-hidden="true">⋯</div>${row(r.me)}` : '');
+  }
+  const mine = list.querySelector('.lb-row.me'); // keep your own row in view
+  if (mine && mine.offsetTop + mine.offsetHeight > list.clientHeight) list.scrollTop = mine.offsetTop - list.clientHeight / 2;
+  const bits = [];
+  if (r.total) bits.push(`${num(r.total)} player${r.total === 1 ? '' : 's'}`);
+  if (v.period === 'week') bits.push(`starts over ${untilText(r.resets)}`);
+  bits.push('solo games on built-in or random maps count');
+  let html = esc(bits.join(' · ').replace(/^./, c => c.toUpperCase())) + '.';
+  if (!lbOn()) html += ' <span class="lb-off">Posting your results is off (Settings).</span>';
+  if (!Full.owned && (!modeFree(v.mode) || !diffFree(v.difficulty))) html += ` <button class="btn small full-btn lb-full" id="lbFull">★ Play ${!modeFree(v.mode) ? MODES[v.mode].name : DIFFICULTIES[v.difficulty].name} with the full version</button>`;
+  foot.innerHTML = html;
+  const fb = $('#lbFull'); if (fb) fb.onclick = () => openFull(`${!modeFree(v.mode) ? MODES[v.mode].name : DIFFICULTIES[v.difficulty].name + ' difficulty'} is part of the full version.`);
+}
+$('#btnBoard').onclick = () => openBoard();
+document.querySelectorAll('#lbModes [data-lbmode]').forEach(b => { b.onclick = () => { lbView.mode = b.dataset.lbmode; renderBoardTabs(); loadBoard(); }; });
+$('#lbDiffs').onclick = e => { const b = e.target.closest('[data-lbdiff]'); if (!b) return; lbView.difficulty = b.dataset.lbdiff; renderBoardTabs(); loadBoard(); };
+document.querySelectorAll('#lbPeriods [data-lbperiod]').forEach(b => { b.onclick = () => { lbView.period = b.dataset.lbperiod; renderBoardTabs(); loadBoard(); }; });
+// Settings: posting on/off, and removing everything this device has posted
+$('#lbPost').onchange = e => { setLbOn(e.target.checked); toast(e.target.checked ? 'Your solo results will be posted to the leaderboard.' : "Your results won't be posted to the leaderboard."); };
+let forgetArmed = 0;
+$('#lbForget').onclick = async () => {
+  const b = $('#lbForget'), label = 'Remove my leaderboard results';
+  if (Date.now() - forgetArmed > 4000) {
+    forgetArmed = Date.now(); b.textContent = 'Press again to remove them';
+    setTimeout(() => { if (forgetArmed && Date.now() - forgetArmed >= 4000) b.textContent = label; }, 4100);
+    return;
+  }
+  forgetArmed = 0; b.disabled = true; b.textContent = 'Removing…';
+  const r = await forgetMe();
+  b.disabled = false; b.textContent = label;
+  toast(r.ok ? (r.removed ? 'Your leaderboard results were removed.' : 'You have no results on the leaderboard.') : "Couldn't reach the leaderboard. Please try again.", 3500);
+};
+addEventListener('online', () => { if (hasPending()) flushPending(); });
+
 // ---------- boot ----------
 await Full.init().catch(e => console.warn(e));
 renderFullButtons();
@@ -1415,4 +1547,5 @@ if (params.get('room')) {
   else { toast('Enter your callsign and press Join', 4000); $('#nameInput').focus(); }
 }
 addEventListener('pointerdown', () => initAudio(), { once: true });
+setTimeout(() => { if (hasPending()) flushPending(); }, 5000); // results kept while offline
 window.__nt = S; window.__input = input; window.__applyTheme = applyTheme; window.__full = Full; window.__r = renderer; window.__audio = audioDebug; // debug handles

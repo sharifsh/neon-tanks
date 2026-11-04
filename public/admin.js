@@ -91,13 +91,14 @@ async function enter() {
 
 // ---------- tabs ----------
 function tab(which) {
-  const inbox = which !== 'settings';
-  $('tabInbox').setAttribute('aria-selected', String(inbox));
-  $('tabSettings').setAttribute('aria-selected', String(!inbox));
-  $('inbox').hidden = !inbox; $('settings').hidden = inbox;
+  const pages = { inbox: 'tabInbox', settings: 'tabSettings', boards: 'tabBoards' };
+  if (!pages[which]) which = 'inbox';
+  for (const [panel, t] of Object.entries(pages)) { $(t).setAttribute('aria-selected', String(panel === which)); $(panel).hidden = panel !== which; }
+  if (which === 'boards' && !lb.loaded) loadBoards();
 }
 $('tabInbox').addEventListener('click', () => tab('inbox'));
 $('tabSettings').addEventListener('click', () => tab('settings'));
+$('tabBoards').addEventListener('click', () => tab('boards'));
 $('toSettings').addEventListener('click', e => { e.preventDefault(); tab('settings'); $('smEnabled').focus(); });
 
 // ---------- inbox ----------
@@ -246,7 +247,7 @@ $('dResend').addEventListener('click', async () => {
 
 async function openFromHash() {
   const h = decodeURIComponent(location.hash.slice(1));
-  if (h === 'settings') { tab('settings'); return; }
+  if (h === 'settings' || h === 'boards') { tab(h); return; }
   if (!UUID.test(h)) return;
   let row = state.rows.find(x => x.id === h);
   if (!row) {
@@ -257,6 +258,86 @@ async function openFromHash() {
   await openRow(row);
 }
 addEventListener('hashchange', () => { if (!$('app').hidden) openFromHash(); });
+
+// ---------- leaderboards ----------
+// Moderation through the leaderboard server function (it checks the same admin account).
+const lb = { rows: [], more: false, loaded: false, seq: 0 };
+const LB_MODE = { classic: 'Classic', survival: 'Survival' }, LB_DIFF = { easy: 'Easy', normal: 'Normal', hard: 'Hard', insane: 'Insane' };
+async function lbApi(action, body = {}) {
+  const t = await token();
+  if (!t) { toSignIn('Please sign in.'); return { ok: false, status: 401 }; }
+  let r;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/leaderboard`, { method: 'POST', headers: { 'content-type': 'application/json', apikey: SUPABASE_KEY, authorization: `Bearer ${t}` }, body: JSON.stringify({ action, ...body }) });
+    let json = {};
+    try { json = await res.json(); } catch { /* not JSON */ }
+    r = { ...json, status: res.status, ok: res.ok && json.ok === true };
+  } catch { r = { status: 0, ok: false }; }
+  if (r.status === 401) { await sb.auth.signOut().catch(() => {}); toSignIn('Your sign-in has expired. Please sign in again.'); }
+  return r;
+}
+const boardName = b => { const [m, d] = b.split(':'); return `${LB_MODE[m] || m} · ${LB_DIFF[d] || d}`; };
+const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+function lbFilters() {
+  const f = { period: $('lbPeriod').value || undefined };
+  if ($('lbBoard').value) f.board = $('lbBoard').value;
+  if ($('lbHidden').checked) f.hidden = true;
+  return f;
+}
+async function loadBoards(older = false) {
+  const seq = ++lb.seq;
+  say('lbStatus', older ? 'Loading older entries…' : 'Loading…');
+  const before = older && lb.rows.length ? lb.rows[lb.rows.length - 1].created_at : undefined;
+  const r = await lbApi('admin_list', { ...lbFilters(), ...(before ? { before } : {}) });
+  if (seq !== lb.seq) return;
+  if (!r.ok) { say('lbStatus', `Couldn't load the leaderboards (${why(r)}).`, true); return; }
+  const key = x => `${x.board}|${x.period}|${x.player_id}`, seen = new Set(older ? lb.rows.map(key) : []);
+  lb.rows = (older ? lb.rows : []).concat(r.entries.filter(x => !seen.has(key(x)))); // a page can repeat the last moment's entries
+  lb.more = r.more; lb.loaded = true;
+  renderBoards(); say('lbStatus', '');
+}
+function renderBoards() {
+  $('lbRows').replaceChildren(...lb.rows.map(row => {
+    const tr = el('tr', row.hidden || row.blocked ? 'off' : '');
+    const unit = row.board.startsWith('survival') ? 'wave' : 'stage';
+    const td = (text, cls) => { const c = el('td', cls, text); tr.append(c); return c; };
+    td(when(row.created_at)).title = `${new Date(row.created_at).toLocaleString()} · ${row.period === 'all' ? 'all time' : row.period}`;
+    td(boardName(row.board) + (row.period === 'all' ? '' : ' · week'));
+    const nm = td(row.name, 'nm');
+    if (row.hidden) nm.append(' ', el('span', 'tag', 'hidden'));
+    if (row.blocked) nm.append(' ', el('span', 'tag', 'player hidden'));
+    td(`${unit} ${row.level}`, 'num'); td(row.score.toLocaleString('en-US'), 'num'); td(String(row.kills), 'num'); td(mmss(row.seconds), 'num');
+    td(SOURCES[row.source] || row.source).title = [row.map, row.size, row.cls].filter(Boolean).join(' · ');
+    const act = el('td', 'act');
+    const hide = el('button', 'btn ghost small', row.hidden ? 'Show' : 'Hide');
+    hide.type = 'button';
+    hide.addEventListener('click', async () => {
+      hide.disabled = true;
+      const r = await lbApi('admin_hide', { board: row.board, period: row.period, player_id: row.player_id, hidden: !row.hidden });
+      hide.disabled = false;
+      if (!r.ok) { say('lbStatus', `Couldn't change it (${why(r)}).`, true); return; }
+      row.hidden = !row.hidden; renderBoards(); say('lbStatus', row.hidden ? `${row.name}'s entry is hidden.` : `${row.name}'s entry is back on the board.`);
+    });
+    const block = el('button', 'btn ghost small', row.blocked ? 'Unhide player' : 'Hide player');
+    block.type = 'button';
+    block.addEventListener('click', async () => {
+      block.disabled = true;
+      const on = !row.blocked;
+      const r = await lbApi('admin_block', { player_id: row.player_id, blocked: on });
+      block.disabled = false;
+      if (!r.ok) { say('lbStatus', `Couldn't change it (${why(r)}).`, true); return; }
+      for (const x of lb.rows) if (x.player_id === row.player_id) x.blocked = on;
+      renderBoards(); say('lbStatus', on ? `Everything ${row.name} posted is hidden (${r.entries} ${r.entries === 1 ? 'entry' : 'entries'}).` : `${row.name}'s entries are back on the boards.`);
+    });
+    act.append(hide, block); tr.append(act);
+    return tr;
+  }));
+  $('lbEmpty').hidden = lb.rows.length > 0;
+  $('lbMore').hidden = !lb.more;
+}
+for (const id of ['lbBoard', 'lbPeriod', 'lbHidden']) $(id).addEventListener('change', () => loadBoards());
+$('lbRefresh').addEventListener('click', () => loadBoards());
+$('lbMore').addEventListener('click', () => loadBoards(true));
 
 // ---------- email settings ----------
 const F = { smtp_host: 'smHost', smtp_user: 'smUser', smtp_password: 'smPass', smtp_from: 'smFrom', smtp_from_name: 'smFromName', notify_to: 'smTo' };

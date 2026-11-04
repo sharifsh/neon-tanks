@@ -43,6 +43,7 @@
         <div class="row2 m-tools">
           <button id="btnEditor" class="btn ghost">Level Editor</button>
           <button id="btnMaps" class="btn ghost">Community Maps</button>
+          <button id="btnBoard" class="btn ghost">Leaderboard</button>
         </div>
       </div>
     </div>
@@ -188,6 +189,7 @@
       <h2 id="endTitle">GAME OVER</h2>
       <p id="endSub" class="muted"></p>
       <table id="endTable" class="results"></table>
+      <div id="endBoard" class="end-board hidden"><span id="endBoardText" role="status"></span><button id="endBoardOpen" class="btn small ghost">Leaderboard</button></div>
       <div id="endHost" class="row2">
         <button id="btnAgain" class="btn primary">Play again</button>
         <button id="btnToLobby" class="btn ghost">Back to lobby</button>
@@ -224,6 +226,17 @@
   <div class="panel modal">
     <div class="modal-head"><h2>Maps</h2><div class="tabs"><button class="btn small tab sel" data-tab="builtin">Built-in pack</button><button class="btn small tab" data-tab="community">Community</button></div><button class="btn small ghost" data-close>✕</button></div>
     <div id="mapsList" class="maps-list"><div class="muted">Loading…</div></div>
+  </div>
+</div>
+<div id="lbModal" class="overlay hidden">
+  <div class="panel modal lb-modal">
+    <div class="modal-head"><h2>Leaderboard</h2><div class="tabs" id="lbModes"><button class="btn small tab" data-lbmode="classic">Classic</button><button class="btn small tab" data-lbmode="survival">Survival</button></div><button class="btn small ghost" data-close>✕</button></div>
+    <div class="lb-bar">
+      <div class="seg lb-diff" id="lbDiffs" role="radiogroup" aria-label="Difficulty"></div>
+      <div class="seg lb-period" id="lbPeriods" role="radiogroup" aria-label="Period"><button data-lbperiod="week" role="radio">This week</button><button data-lbperiod="all" role="radio">All time</button></div>
+    </div>
+    <div id="lbList" class="lb-list" aria-live="polite"></div>
+    <div id="lbFoot" class="lb-foot muted small-note"></div>
   </div>
 </div>
 <div id="fullModal" class="overlay hidden">
@@ -271,6 +284,8 @@
     <div class="set-row"><span>Sound effects</span><input type="range" id="volSfx" min="0" max="1" step="0.05" value="0.5"></div>
     <div class="set-row stick-row touch-only"><span>Joystick</span><div class="seg stick-seg" role="radiogroup" aria-label="Joystick"><button data-stick="fixed" role="radio">Fixed</button><button data-stick="float" role="radio">Follows thumb</button></div></div>
     <p class="muted small-note touch-only stick-note"></p>
+    <label class="toggle lb-post"><input type="checkbox" id="lbPost"> Post my solo results to the leaderboard</label>
+    <button id="lbForget" class="btn ghost small lb-forget">Remove my leaderboard results</button>
     <button id="btnControls" class="btn ghost kbd-only">⌨ Keyboard &amp; gamepad controls</button>
     <button id="btnRestore" class="btn ghost hidden">Restore purchases</button>
     <div class="menu-links"><a href="support.html">Support</a> · <a href="privacy.html">Privacy</a></div>
