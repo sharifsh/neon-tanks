@@ -6,7 +6,7 @@ const CACHE = 'neon-tanks-v1';
 const CORE = [
   './', 'index.html', 'manifest.webmanifest', 'style.css', 'fonts.css',
   'main.js', 'audio.js', 'config.js', 'const.js', 'editor.js', 'fakenet.js', 'game.js', 'input.js', 'levels.js',
-  'maps.js', 'net.js', 'render.js', 'store.js', 'support-api.js', 'themes.js', 'vendor/supabase.js',
+  'leaderboard.js', 'maps.js', 'net.js', 'render.js', 'store.js', 'support-api.js', 'themes.js', 'vendor/supabase.js',
   'fonts/black-ops-one-latin-400-normal.woff2', 'fonts/orbitron-latin-600-normal.woff2', 'fonts/orbitron-latin-800-normal.woff2',
   'fonts/orbitron-latin-900-normal.woff2', 'fonts/press-start-2p-latin-400-normal.woff2', 'fonts/rajdhani-latin-500-normal.woff2',
   'fonts/rajdhani-latin-600-normal.woff2', 'fonts/rajdhani-latin-700-normal.woff2', 'fonts/russo-one-latin-400-normal.woff2',
