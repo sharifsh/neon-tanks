@@ -1,9 +1,15 @@
-// Free-to-start: one non-consumable "Full" unlock bought through the App Store / Google Play.
+// Free-to-start: one non-consumable "Full" unlock bought through the App Store / Google Play, or the
+// Microsoft Store in the Windows app (this website installed from the Store as an app).
 // The website is always the free version and links to the store.
-// In the native app, ownership is read from the store account at launch and whenever the app
+// In the apps, ownership is read from the store account at launch and whenever the app
 // comes back to the foreground, so refunds and restores take effect without a reinstall.
 
 export const PRODUCT_ID = 'com.sharifsh.neontanks.full';
+// The Windows app: the unlock is a durable Store add-on with this product ID, bought through the
+// Microsoft Store's own checkout (Digital Goods API + Payment Request), which only a copy installed
+// from the Store can reach. Microsoft requires games to sell through it.
+export const MS_BILLING = 'https://store.microsoft.com/billing';
+export const MS_PRODUCT_ID = 'full_game';
 // App Store page: https://apps.apple.com/app/id6826830695 — fill in APP_STORE_URL once the app is live
 // (empty = the website says "coming soon to the App Store").
 export const APP_STORE_URL = '';
@@ -28,6 +34,16 @@ const cache = {
   set(v) { try { v ? localStorage.setItem(CACHE_KEY, '1') : localStorage.removeItem(CACHE_KEY); } catch (e) {} },
 };
 
+// The Microsoft Store's billing service when this copy is the Windows app from the Store; null in a
+// browser tab, the phone apps and anywhere else.
+async function msStore() {
+  if (plugin() || typeof window.getDigitalGoodsService !== 'function') return null;
+  try {
+    return (await Promise.race([window.getDigitalGoodsService(MS_BILLING), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 3000))])) || null;
+  } catch (e) { return null; }
+}
+const msPrice = d => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: d.price.currency }).format(Number(d.price.value)); } catch (e) { return ''; } };
+
 function plugin() {
   const C = window.Capacitor;
   if (!C || !(C.isNativePlatform ? C.isNativePlatform() : C.isNative)) return null;
@@ -35,7 +51,7 @@ function plugin() {
 }
 const errText = e => String((e && (e.message || e.errorMessage)) || e || '');
 const errCode = e => String((e && e.code) || '');
-const isCancel = e => /cancel/i.test(errText(e)) || /USER_CANCELED/i.test(errCode(e));
+const isCancel = e => /cancel/i.test(errText(e)) || /USER_CANCELED/i.test(errCode(e)) || (e && e.name === 'AbortError');
 const isPending = e => /pending/i.test(errText(e));
 const isOwnedAlready = e => /ALREADY_OWNED/i.test(errText(e) + errCode(e));
 
@@ -63,6 +79,8 @@ async function acknowledge(P, purchases) {
 
 export const Full = {
   native: false,
+  ms: null,               // the Microsoft Store's billing service (Windows app only)
+  canBuy: false,          // this copy sells the unlock: a phone app or the Windows app
   owned: false,
   product: null,          // { title, priceString } from the store, once it answers
   productState: 'idle',   // idle | loading | ready | missing | error
@@ -81,9 +99,11 @@ export const Full = {
   async init() {
     const P = plugin();
     this.native = !!P;
-    if (!P) { this.owned = false; cache.set(false); return; } // website = free version
+    if (!P) this.ms = await msStore();
+    this.canBuy = !!(P || this.ms);
+    if (!this.canBuy) { this.owned = false; return; } // website = free version
     this.owned = cache.get(); // last known answer while the store replies
-    try {
+    if (P) try {
       await P.addListener('transactionUpdated', t => { if (grants(t)) this.set(true, 'unlocked'); });
     } catch (e) {}
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.refresh(); });
@@ -94,6 +114,11 @@ export const Full = {
   // Ask the store what this account owns (and acknowledge anything Google Play is still waiting on).
   // Keeps the cached answer if the store can't be reached.
   async refresh() {
+    if (this.ms) {
+      try { const list = await this.ms.listPurchases(); this.set((list || []).some(p => p && p.itemId === MS_PRODUCT_ID)); }
+      catch (e) { console.warn('purchases check failed', errText(e)); }
+      return this.owned;
+    }
     const P = plugin(); if (!P) return this.owned;
     try {
       const r = await P.getPurchases({ productType: 'inapp', onlyCurrentEntitlements: true });
@@ -106,9 +131,18 @@ export const Full = {
 
   // Called whenever the unlock card opens: a new product can take a while to appear after setup.
   async loadProduct() {
-    const P = plugin(); if (!P) return null;
+    const P = plugin(); if (!P && !this.ms) return null;
     if (this.productState === 'loading') return this.product;
     this.productState = 'loading'; this.emit('product');
+    if (this.ms) {
+      try {
+        const d = ((await this.ms.getDetails([MS_PRODUCT_ID])) || []).find(x => x && x.itemId === MS_PRODUCT_ID);
+        this.product = d ? { title: d.title, priceString: msPrice(d) } : null;
+        this.productState = d ? 'ready' : 'missing';
+      } catch (e) { this.product = null; this.productState = 'error'; }
+      this.emit('product');
+      return this.product;
+    }
     try {
       const r = await P.getProducts({ productIdentifiers: [PRODUCT_ID], productType: 'inapp' });
       const p = (r && r.products || []).find(x => x.identifier === PRODUCT_ID);
@@ -124,11 +158,20 @@ export const Full = {
 
   // Returns { ok, status: 'unlocked'|'cancelled'|'pending'|'failed'|'unavailable', message }
   async buy() {
-    const P = plugin(); if (!P) return { ok: false, status: 'unavailable', message: 'Purchases are only available in the app.' };
+    const P = plugin(); if (!P && !this.ms) return { ok: false, status: 'unavailable', message: 'Purchases are only available in the app.' };
     if (this.busy) return { ok: false, status: 'busy' };
     if (this.productState !== 'ready') { await this.loadProduct(); if (this.productState !== 'ready') return { ok: false, status: 'unavailable', message: 'The store isn’t offering the unlock right now. Please try again in a little while.' }; }
     this.busy = true; this.emit('busy');
     try {
+      if (this.ms) {
+        // The Microsoft Store's checkout. The add-on is durable (bought once), so it is never consumed.
+        const res = await new PaymentRequest([{ supportedMethods: MS_BILLING, data: { sku: MS_PRODUCT_ID } }]).show();
+        try { await res.complete('success'); } catch (e) {}
+        await this.refresh();
+        if (!this.owned) { await new Promise(r => setTimeout(r, 1500)); await this.refresh(); }
+        return this.owned ? { ok: true, status: 'unlocked' }
+          : { ok: false, status: 'failed', message: 'the purchase went through but hasn’t reached the game yet. It unlocks as soon as it does, or choose Restore purchases.' };
+      }
       const t = await P.purchaseProduct({ productIdentifier: PRODUCT_ID, productType: 'inapp', quantity: 1 });
       if (grants(t) || (t && t.transactionId && t.productIdentifier === PRODUCT_ID && t.purchaseState == null)) { this.set(true, 'unlocked'); return { ok: true, status: 'unlocked' }; }
       if (t && String(t.purchaseState) === '2') { this.pending = true; this.emit('pending'); return { ok: false, status: 'pending' }; }
@@ -136,6 +179,7 @@ export const Full = {
       return this.owned ? { ok: true, status: 'unlocked' } : { ok: false, status: 'failed', message: 'The purchase didn’t complete.' };
     } catch (e) {
       if (isCancel(e)) return { ok: false, status: 'cancelled' };
+      if (this.ms) { await this.refresh(); if (this.owned) return { ok: true, status: 'unlocked' }; }
       if (isPending(e)) { this.pending = true; this.emit('pending'); return { ok: false, status: 'pending' }; }
       if (isOwnedAlready(e)) { await this.restore(); if (this.owned) return { ok: true, status: 'unlocked' }; }
       return { ok: false, status: 'failed', message: errText(e) || 'The purchase didn’t complete.' };
@@ -144,10 +188,10 @@ export const Full = {
 
   // Returns { ok, status: 'restored'|'none'|'failed'|'unavailable' }
   async restore() {
-    const P = plugin(); if (!P) return { ok: false, status: 'unavailable' };
+    const P = plugin(); if (!P && !this.ms) return { ok: false, status: 'unavailable' };
     this.busy = true; this.emit('busy');
     try {
-      try { await P.restorePurchases(); } catch (e) { if (isCancel(e)) return { ok: false, status: 'cancelled' }; throw e; }
+      if (P) try { await P.restorePurchases(); } catch (e) { if (isCancel(e)) return { ok: false, status: 'cancelled' }; throw e; }
       await this.refresh();
       return this.owned ? { ok: true, status: 'restored' } : { ok: false, status: 'none' };
     } catch (e) {

@@ -1333,17 +1333,17 @@ function renderFull(status) {
   $('#fullWhy').textContent = Full.owned ? 'Thanks for your support! Everything is unlocked.' : fullWhy;
   $('#fullWhy').classList.toggle('hidden', !Full.owned && !fullWhy);
   const buy = $('#fullBuy'), link = $('#fullStore'), rest = $('#fullRestore');
-  buy.classList.toggle('hidden', !Full.native || Full.owned);
-  rest.classList.toggle('hidden', !Full.native);
+  buy.classList.toggle('hidden', !Full.canBuy || Full.owned);
+  rest.classList.toggle('hidden', !Full.canBuy);
   const sl = storeLink();
-  link.classList.toggle('hidden', Full.native || !sl);
+  link.classList.toggle('hidden', Full.canBuy || !sl);
   if (sl) { link.href = sl.url; link.textContent = sl.label; }
-  $('#fullWeb').classList.toggle('hidden', Full.native);
+  $('#fullWeb').classList.toggle('hidden', Full.canBuy);
   $('#fullWeb').textContent = sl ? 'This website is the free version. Get the app to unlock everything.' : 'This website is the free version. The full version is coming soon to the App Store.';
-  if (Full.native && !Full.owned) {
+  if (Full.canBuy && !Full.owned) {
     const st = Full.productState;
     buy.disabled = Full.busy || st === 'loading';
-    buy.textContent = Full.busy ? 'Please wait…' : st === 'ready' ? `Unlock everything — ${Full.product.priceString}` : st === 'loading' ? 'Loading price…' : 'Not available yet — tap to retry';
+    buy.textContent = Full.busy ? 'Please wait…' : st === 'ready' ? `Unlock everything — ${Full.product.priceString}` : st === 'loading' ? 'Loading price…' : `Not available yet — ${Full.native ? 'tap' : 'click'} to retry`;
   }
   rest.disabled = Full.busy;
   if (status !== undefined) { $('#fullStatus').textContent = status; }
@@ -1354,7 +1354,7 @@ function openFull(why = '') {
   $('#fullStatus').textContent = '';
   $('#fullModal').classList.remove('hidden');
   renderFull();
-  if (Full.native && !Full.owned) Full.loadProduct(); // ask the store again each time the card opens
+  if (Full.canBuy && !Full.owned) Full.loadProduct(); // ask the store again each time the card opens
 }
 $('#fullBuy').onclick = async () => {
   if (Full.productState !== 'ready') { Full.loadProduct(); return; }
@@ -1374,7 +1374,7 @@ $('#btnFull').onclick = () => openFull('');
 function renderFullButtons() {
   $('#btnFull').textContent = Full.owned ? '★ Full version ✓' : '★ Full version';
   $('#btnFull').classList.toggle('owned', Full.owned);
-  $('#btnRestore').classList.toggle('hidden', !Full.native);
+  $('#btnRestore').classList.toggle('hidden', !Full.canBuy);
 }
 // If the copy loses Full (refund, other Apple ID) fall back to free choices.
 function enforceOwnership() {
