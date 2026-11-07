@@ -1529,6 +1529,10 @@ $('#lbForget').onclick = async () => {
 addEventListener('online', () => { if (hasPending()) flushPending(); });
 
 // ---------- boot ----------
+// Offline copy for the installed app (the Windows app from the Microsoft Store, home-screen apps): only on the live
+// https site, never in the phone apps (their files are already on the device).
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.Capacitor && window.top === window)
+  addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 await Full.init().catch(e => console.warn(e));
 renderFullButtons();
 document.querySelectorAll('.sty').forEach(el => { const l = el.querySelector('.sty-lock'); if (l) l.classList.toggle('hidden', Full.owned); });
