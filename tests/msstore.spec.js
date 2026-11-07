@@ -92,6 +92,15 @@ test.describe('Windows app from the Microsoft Store', () => {
     await expect.poll(() => ms(page, () => window.__full.owned)).toBe(false);
   });
 
+  test('before Microsoft publishes the add-on (it can only follow the app): "Coming soon", nothing to click', async ({ page }) => {
+    await open(page, { offered: false });
+    await page.click('#btnFull');
+    await expect(page.locator('#fullBuy')).toHaveText('Coming soon to the Microsoft Store');
+    await expect(page.locator('#fullBuy')).toBeDisabled();
+    await expect(page.locator('#fullRestore')).toBeHidden();
+    await expect(page.locator('#fullStore')).toBeHidden();
+  });
+
   test('a browser tab with the API but not the Store app stays the free version, even with a saved unlock', async ({ page }) => {
     await open(page, { store: false }, true);
     expect(await ms(page, () => [window.__full.canBuy, window.__full.owned])).toEqual([false, false]);

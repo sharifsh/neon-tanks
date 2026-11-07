@@ -1334,7 +1334,9 @@ function renderFull(status) {
   $('#fullWhy').classList.toggle('hidden', !Full.owned && !fullWhy);
   const buy = $('#fullBuy'), link = $('#fullStore'), rest = $('#fullRestore');
   buy.classList.toggle('hidden', !Full.canBuy || Full.owned);
-  rest.classList.toggle('hidden', !Full.canBuy);
+  // Microsoft publishes the add-on only after the app: until then the Windows app says "Coming soon".
+  const msSoon = !!Full.ms && Full.productState === 'missing';
+  rest.classList.toggle('hidden', !Full.canBuy || msSoon);
   const sl = storeLink();
   link.classList.toggle('hidden', Full.canBuy || !sl);
   if (sl) { link.href = sl.url; link.textContent = sl.label; }
@@ -1342,8 +1344,9 @@ function renderFull(status) {
   $('#fullWeb').textContent = sl ? 'This website is the free version. Get the app to unlock everything.' : 'This website is the free version. The full version is coming soon to the App Store.';
   if (Full.canBuy && !Full.owned) {
     const st = Full.productState;
-    buy.disabled = Full.busy || st === 'loading';
-    buy.textContent = Full.busy ? 'Please wait…' : st === 'ready' ? `Unlock everything — ${Full.product.priceString}` : st === 'loading' ? 'Loading price…' : `Not available yet — ${Full.native ? 'tap' : 'click'} to retry`;
+    buy.disabled = Full.busy || st === 'loading' || msSoon;
+    buy.textContent = Full.busy ? 'Please wait…' : st === 'ready' ? `Unlock everything — ${Full.product.priceString}` : st === 'loading' ? 'Loading price…'
+      : msSoon ? 'Coming soon to the Microsoft Store' : `Not available yet — ${Full.native ? 'tap' : 'click'} to retry`;
   }
   rest.disabled = Full.busy;
   if (status !== undefined) { $('#fullStatus').textContent = status; }
